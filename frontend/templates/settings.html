@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Settings — Music Library{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+{% if saved %}
+<div class="notice success">Settings saved.</div>
+{% endif %}
+
+<form method="post" action="/settings">
+
+  <h2>Spotify Credentials</h2>
+  <p class="muted">
+    Credentials are stored in <code>.env</code> at the project root, not in source code.
+    Leave a field blank to keep the existing value.
+  </p>
+
+  <div class="form-group">
+    <label for="spotify_client_id">
+      Spotify Client ID
+      {% if client_id_set %}
+        <span class="badge badge-done">set</span>
+      {% else %}
+        <span class="badge badge-failed">not set</span>
+      {% endif %}
+    </label>
+    <input type="password" id="spotify_client_id" name="spotify_client_id"
+           placeholder="Leave blank to keep existing value"
+           autocomplete="off">
+  </div>
+
+  <div class="form-group">
+    <label for="spotify_client_secret">
+      Spotify Client Secret
+      {% if client_secret_set %}
+        <span class="badge badge-done">set</span>
+      {% else %}
+        <span class="badge badge-failed">not set</span>
+      {% endif %}
+    </label>
+    <input type="password" id="spotify_client_secret" name="spotify_client_secret"
+           placeholder="Leave blank to keep existing value"
+           autocomplete="off">
+  </div>
+
+  <h2>Library</h2>
+
+  <div class="form-group">
+    <label for="library_root">Music library root folder</label>
+    <input type="text" id="library_root" name="library_root"
+           value="{{ library_root }}"
+           placeholder="/home/user/Music"
+           class="input-wide">
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Save Settings</button>
+  </div>
+</form>
+{% endblock %}

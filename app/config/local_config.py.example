@@ -1,7 +1,3 @@
-# Copy this file to local_config.py and fill in your credentials.
-# local_config.py is gitignored and should NEVER be committed.
-
-# Spotify API credentials
-# Get these from: https://developer.spotify.com/dashboard
-SPOTIFY_CLIENT_ID = "your_spotify_client_id_here"
-SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret_here"
+# Copy to .env at the project root (never commit .env)
+SPOTIFY_CLIENT_ID=your_client_id_here
+SPOTIFY_CLIENT_SECRET=your_client_secret_here

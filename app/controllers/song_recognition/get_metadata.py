@@ -1,12 +1,14 @@
 import asyncio
 import io
 import logging
+import time
 from typing import Any
 
 import requests
 from shazamio import Shazam
 
 from app.tools.make_logger import simple_logger
+from app.models.exceptions import RecognitionError
 
 logger = simple_logger(__name__)
 
@@ -44,12 +46,31 @@ def fetch_lyrics_second_source(artist: str, title: str) -> str | None:
     return None
 
 
+async def _recognize_with_retry(shazam: Shazam, file_path: str, max_attempts: int = 3) -> dict:
+    """Call shazam.recognize() with exponential backoff.
+
+    Shazam's API can return transient errors under load; backing off 2^attempt
+    seconds gives the service time to recover without hammering it.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await shazam.recognize(file_path)
+        except Exception as exc:
+            if attempt == max_attempts:
+                raise RecognitionError(
+                    f"Shazam recognition failed after {max_attempts} attempts: {exc}"
+                ) from exc
+            wait = 2 ** attempt
+            logger.warning(f"Shazam attempt {attempt} failed, retrying in {wait}s: {exc}")
+            await asyncio.sleep(wait)
+
+
 async def gather_song_info(file_path: str) -> dict[str, Any]:
     """
     Recognize a local audio file using Shazam, extract relevant metadata, and return it.
 
     This function will:
-      a) Extract required metadata (song name, artist name). If these fail, raises ValueError.
+      a) Extract required metadata (song name, artist name). If these fail, raises RecognitionError.
       b) Attempt to retrieve the album name. If unavailable, it is set to "Unknown Album".
       c) Acquire optional metadata (e.g., year, genre, label, ISRC, etc.).
       d) Acquire album art and store as a file-like (BytesIO). If none found, store None.
@@ -57,13 +78,13 @@ async def gather_song_info(file_path: str) -> dict[str, Any]:
 
     :param file_path: Path to the local audio file
     :return: A dictionary containing the gathered metadata
-    :raises ValueError: If required metadata is not found
+    :raises RecognitionError: If required metadata is not found or Shazam fails all retries
     """
     logger.debug(f"Initializing Shazam for file: {file_path}")
     shazam = Shazam()
 
     logger.debug("Attempting to recognize song...")
-    result = await shazam.recognize(file_path)
+    result = await _recognize_with_retry(shazam, file_path)
     track_info = result.get("track", {})
     logger.debug("Song recognition result obtained.")
 
@@ -76,7 +97,7 @@ async def gather_song_info(file_path: str) -> dict[str, Any]:
     if not title or not artist:
         error_message = f"Unable to find required metadata (title/artist) for file: {file_path}"
         logger.error(error_message)
-        raise ValueError(error_message)
+        raise RecognitionError(error_message)
 
     # ------------------------------------------------
     # b) Album name (if unavailable, "Unknown Album")
@@ -200,7 +221,7 @@ def example_main() -> None:
     try:
         metadata = asyncio.run(gather_song_info(example_file_path))
         logger.info(f"Successfully gathered metadata: {metadata.keys()}")
-    except ValueError as ve:
+    except RecognitionError as ve:
         logger.error(f"Metadata gathering failed: {ve}")
     except Exception as exc:
         logger.exception(f"Unexpected error: {exc}")

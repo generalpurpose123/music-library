@@ -6,6 +6,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 
 from app.tools.make_logger import simple_logger
 from app.config.local_config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+from app.models.exceptions import CredentialsError, PlaylistFetchError
 
 logger = simple_logger(__name__)
 
@@ -30,24 +31,31 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
     """
     Gather a list of songs (title and artist) from a Spotify playlist, given its URL.
 
-    This version reads SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET from app.config.local_config.
+    This version reads SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET from environment variables
+    via app.config.local_config.
 
     :param playlist_url: The full URL of the Spotify playlist.
     :return: A list of dictionaries with 'title' and 'artist' for each track.
+    :raises CredentialsError: If Spotify credentials are missing.
+    :raises PlaylistFetchError: If the playlist cannot be retrieved.
 
     Usage example:
         tracks = get_spotify_playlist(
             playlist_url="https://open.spotify.com/playlist/123...",
         )
     """
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        raise CredentialsError(
+            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set. See local_config.py.example."
+        )
+
     playlist_id = extract_playlist_id(playlist_url)
     if not playlist_id:
-        logger.error("Could not parse a valid playlist ID from the given URL.")
-        return []
+        raise PlaylistFetchError("Could not parse a valid playlist ID from the given URL.")
 
     logger.debug(f"Attempting to retrieve tracks for playlist: {playlist_id}")
 
-    # Authenticate with Spotify using local config credentials
+    # Authenticate with Spotify using credentials loaded from environment
     client_credentials_manager = SpotifyClientCredentials(
         client_id=SPOTIFY_CLIENT_ID,
         client_secret=SPOTIFY_CLIENT_SECRET
@@ -93,6 +101,8 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
 
         logger.info(f"Found {len(tracks_data)} tracks in the playlist.")
         return tracks_data
+    except (CredentialsError, PlaylistFetchError):
+        raise
     except Exception as e:
         logger.exception(f"Error retrieving Spotify playlist: {e}")
-        return []
+        raise PlaylistFetchError(f"Failed to retrieve Spotify playlist '{playlist_id}': {e}") from e

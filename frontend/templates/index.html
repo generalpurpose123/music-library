@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Music Library{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ mp3_count }}</div>
+    <div class="stat-label">MP3 files</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value mono truncate">{{ library_root if library_root else "—" }}</div>
+    <div class="stat-label">Library root</div>
+  </div>
+</div>
+
+{% if not library_root %}
+<div class="notice warning">
+  Library root is not configured. Go to <a href="/settings">Settings</a> to set it.
+</div>
+{% endif %}
+
+<h2>Recent Jobs</h2>
+{% if recent_jobs %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Job ID</th>
+        <th>Schema</th>
+        <th>Tracks</th>
+        <th>Done</th>
+        <th>Failed</th>
+        <th>Status</th>
+        <th>Started</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in recent_jobs %}
+      <tr>
+        <td class="mono">{{ job.job_id }}</td>
+        <td>{{ job.schema }}</td>
+        <td>{{ job.tracks }}</td>
+        <td>{{ job.done }}</td>
+        <td>{{ job.failed }}</td>
+        <td>
+          {% if job.completed %}
+            <span class="badge badge-done">done</span>
+          {% else %}
+            <span class="badge badge-downloading">running</span>
+          {% endif %}
+        </td>
+        <td>{{ job.created_at }}</td>
+        <td><a href="/jobs/{{ job.job_id }}">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">No jobs yet. Use <a href="/sync">Sync Playlist</a> to start one.</p>
+{% endif %}
+
+<div class="quick-links">
+  <a href="/sync" class="btn-primary">Sync a Playlist</a>
+  <a href="/download" class="btn-secondary">Download a Song</a>
+  <a href="/browse" class="btn-secondary">Browse Library</a>
+</div>
+{% endblock %}

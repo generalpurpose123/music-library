@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job_id }} — Music Library{% endblock %}
+{% block content %}
+<h1>Job <span class="mono">{{ job_id }}</span></h1>
+
+<div class="progress-bar-wrap">
+  <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+</div>
+<p id="progress-label" class="muted">Waiting for job data...</p>
+
+<div id="track-table-wrap" class="table-wrap">
+  <table id="track-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Artist</th>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Path</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody id="track-tbody"></tbody>
+  </table>
+</div>
+
+<div id="log-section">
+  <h2>Log</h2>
+  <pre id="log-output" class="log-box"></pre>
+</div>
+
+<div id="done-banner" style="display:none" class="notice success">
+  Job complete. <a href="/">Back to dashboard</a>
+</div>
+
+<script>
+const jobId = {{ job_id | tojson }};
+const evtSource = new EventSource(`/jobs/${jobId}/stream`);
+
+evtSource.onmessage = function(e) {
+  const payload = JSON.parse(e.data);
+
+  // Append log lines
+  if (payload.log_lines && payload.log_lines.length > 0) {
+    const logBox = document.getElementById('log-output');
+    logBox.textContent += payload.log_lines.join('\n') + '\n';
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // Update track table
+  if (payload.job && payload.job.tracks && payload.job.tracks.length > 0) {
+    const tracks = payload.job.tracks;
+    const tbody = document.getElementById('track-tbody');
+    tbody.innerHTML = '';
+    let done = 0;
+    tracks.forEach((t, i) => {
+      if (t.status === 'done' || t.status === 'skipped') done++;
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${escHtml(t.artist)}</td>
+        <td>${escHtml(t.title)}</td>
+        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+        <td class="mono small">${escHtml(t.target_path || '')}</td>
+        <td class="small error-text">${escHtml(t.error || '')}</td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    const pct = Math.round((done / tracks.length) * 100);
+    document.getElementById('progress-bar').style.width = pct + '%';
+
+    const failed = tracks.filter(t => t.status === 'failed').length;
+    document.getElementById('progress-label').textContent =
+      `${done} / ${tracks.length} complete${failed > 0 ? ' — ' + failed + ' failed' : ''}`;
+  }
+
+  if (payload.job && payload.job.done) {
+    evtSource.close();
+    document.getElementById('done-banner').style.display = 'block';
+  }
+};
+
+evtSource.onerror = function() {
+  evtSource.close();
+  const logBox = document.getElementById('log-output');
+  logBox.textContent += '\n[Connection closed]\n';
+};
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

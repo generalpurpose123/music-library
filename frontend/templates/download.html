@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Download Song — Music Library{% endblock %}
+{% block content %}
+<h1>Download Song</h1>
+
+<form method="post" action="/download/start">
+  <div class="form-group">
+    <label for="artist">Artist name</label>
+    <input type="text" id="artist" name="artist" placeholder="e.g. Pink Floyd" required>
+  </div>
+  <div class="form-group">
+    <label for="song">Song name</label>
+    <input type="text" id="song" name="song" placeholder="e.g. Comfortably Numb" required>
+  </div>
+  <div class="form-group">
+    <label for="output_folder">Output folder</label>
+    <input type="text" id="output_folder" name="output_folder"
+           value="{{ library_root }}"
+           placeholder="/home/user/Music"
+           class="input-wide" required>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Download</button>
+  </div>
+</form>
+
+<p class="muted">
+  Downloads via YouTube search, verifies with Shazam, and attaches ID3 tags.
+  Up to 3 search results are tried before giving up.
+</p>
+{% endblock %}

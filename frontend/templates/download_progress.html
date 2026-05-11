@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Downloading — Music Library{% endblock %}
+{% block content %}
+<h1>Download Progress</h1>
+
+<div class="progress-bar-wrap">
+  <div class="progress-bar" id="dl-progress-bar" style="width:0%"></div>
+</div>
+<p id="dl-status" class="muted">Connecting...</p>
+
+<pre id="dl-log" class="log-box"></pre>
+
+<div id="dl-done-banner" style="display:none" class="notice success">
+  Done. <a href="/download">Download another</a> &middot; <a href="/">Dashboard</a>
+</div>
+
+<script>
+const jobId = {{ job_id | tojson }};
+const evtSource = new EventSource(`/download/progress/${jobId}/stream`);
+const log = document.getElementById('dl-log');
+
+evtSource.onmessage = function(e) {
+  const payload = JSON.parse(e.data);
+  if (payload.lines && payload.lines.length > 0) {
+    log.textContent += payload.lines.join('\n') + '\n';
+    log.scrollTop = log.scrollHeight;
+
+    const lastLine = payload.lines[payload.lines.length - 1];
+    document.getElementById('dl-status').textContent = lastLine.substring(0, 80);
+  }
+
+  if (payload.done) {
+    evtSource.close();
+    document.getElementById('dl-progress-bar').style.width = '100%';
+    document.getElementById('dl-done-banner').style.display = 'block';
+    const lastLines = log.textContent.trim().split('\n');
+    const last = lastLines[lastLines.length - 1] || '';
+    if (last.startsWith('SUCCESS')) {
+      document.getElementById('dl-status').textContent = last;
+      document.getElementById('dl-status').className = 'success';
+    } else if (last.startsWith('ERROR')) {
+      document.getElementById('dl-status').textContent = last;
+      document.getElementById('dl-status').className = 'error-text';
+    } else {
+      document.getElementById('dl-status').textContent = 'Finished.';
+    }
+  }
+};
+
+evtSource.onerror = function() {
+  evtSource.close();
+  log.textContent += '\n[Connection closed]\n';
+};
+</script>
+{% endblock %}

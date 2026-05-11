@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Browse Library — Music Library{% endblock %}
+{% block content %}
+<h1>Browse Library</h1>
+
+<form hx-post="/browse/scan"
+      hx-target="#scan-result"
+      hx-swap="innerHTML"
+      hx-indicator="#scan-spinner">
+  <div class="form-group">
+    <label for="folder">Folder to scan</label>
+    <input type="text" id="folder" name="folder"
+           value="{{ library_root }}"
+           placeholder="/home/user/Music"
+           class="input-wide" required>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn-secondary">Scan</button>
+    <span id="scan-spinner" class="htmx-indicator spinner">Scanning...</span>
+  </div>
+</form>
+
+<div id="scan-result"></div>
+{% endblock %}

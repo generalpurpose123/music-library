@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Sync Playlist — Music Library{% endblock %}
+{% block content %}
+<h1>Sync Playlist</h1>
+
+<form id="fetch-form"
+      hx-post="/sync/fetch"
+      hx-target="#fetch-result"
+      hx-swap="innerHTML"
+      hx-indicator="#fetch-spinner">
+
+  <div class="form-group">
+    <label for="playlist_url">Spotify Playlist URL</label>
+    <input type="url" id="playlist_url" name="playlist_url"
+           placeholder="https://open.spotify.com/playlist/..."
+           required class="input-wide">
+  </div>
+
+  <div class="form-group">
+    <label for="schema">Organising schema</label>
+    <select id="schema" name="schema" onchange="toggleWildcard(this.value)">
+      <option value="artist/album">artist / album</option>
+      <option value="artist">artist only</option>
+      <option value="artist/album/wildcard">artist / album / wildcard</option>
+    </select>
+  </div>
+
+  <div class="form-group" id="wildcard-group" style="display:none">
+    <label for="wildcard">Wildcard folder name</label>
+    <input type="text" id="wildcard" name="wildcard" placeholder="e.g. Favourites">
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-secondary">Fetch Playlist</button>
+    <span id="fetch-spinner" class="htmx-indicator spinner">Fetching...</span>
+  </div>
+</form>
+
+<div id="fetch-result"></div>
+
+<script>
+function toggleWildcard(val) {
+  document.getElementById('wildcard-group').style.display =
+    val.includes('wildcard') ? 'block' : 'none';
+}
+</script>
+{% endblock %}
