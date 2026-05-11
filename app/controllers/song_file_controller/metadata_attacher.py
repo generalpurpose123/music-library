@@ -1,6 +1,4 @@
-import logging
-import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
 from mutagen.id3 import (
     ID3,
@@ -18,7 +16,7 @@ from app.tools.make_logger import simple_logger
 logger = simple_logger(__name__)
 
 
-def attach_id3_metadata(mp3_path: str, metadata: Dict[str, Any]) -> None:
+def attach_id3_metadata(mp3_path: str, metadata: dict[str, Any]) -> None:
     """
     Attach the provided metadata dictionary as ID3 tags to the specified MP3 file.
 

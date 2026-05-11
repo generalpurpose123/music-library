@@ -1,6 +1,5 @@
 import logging
 import re
-from typing import List, Dict, Optional
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -11,7 +10,7 @@ from app.config.local_config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
 logger = simple_logger(__name__)
 
 
-def extract_playlist_id(playlist_url: str) -> Optional[str]:
+def extract_playlist_id(playlist_url: str) -> str | None:
     """
     Extracts the Spotify playlist ID from a typical playlist URL.
     e.g. https://open.spotify.com/playlist/12345ABCD => 12345ABCD
@@ -27,7 +26,7 @@ def extract_playlist_id(playlist_url: str) -> Optional[str]:
     return None
 
 
-def get_spotify_playlist(playlist_url: str) -> List[Dict[str, str]]:
+def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
     """
     Gather a list of songs (title and artist) from a Spotify playlist, given its URL.
 

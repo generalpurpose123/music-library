@@ -1,14 +1,13 @@
 import logging
 import sys
 import io
-from typing import Optional
 
 
 def simple_logger(name,
                   logging_format: str = logging.BASIC_FORMAT,
                   output_stream: io.TextIOWrapper = sys.stderr,
                   log_level: int = logging.DEBUG,
-                  filename: Optional[str] = None) -> logging.Logger:
+                  filename: str | None = None) -> logging.Logger:
     """
     Returns a logger which logs to a stream (default stderr) by default and to a file if a filename is given.
 

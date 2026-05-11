@@ -2,7 +2,7 @@ import os
 import re
 import shutil
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from app.tools.make_logger import simple_logger
 from app.controllers.song_recognition.get_metadata import gather_song_info
@@ -17,11 +17,11 @@ def strip_feature(artist: str) -> str:
 
 def build_path(
     root_folder: str,
-    organizing_schema: List[str],
+    organizing_schema: list[str],
     title: str,
     artist: str,
-    album: Optional[str] = None,
-    wildcard_value: Optional[str] = None,
+    album: str | None = None,
+    wildcard_value: str | None = None,
 ) -> str:
     safe_artist = sanitize_fs_name(strip_feature(artist))
     safe_title = sanitize_fs_name(title)
@@ -44,11 +44,11 @@ def build_path(
     return os.path.join(dir_path, filename)
 
 def find_existing_files(
-    playlist: List[Dict[str, Any]],
+    playlist: list[dict[str, Any]],
     root_folder: str,
-    organizing_schema: List[str],
-    wildcard_value: Optional[str] = None
-) -> List[str]:
+    organizing_schema: list[str],
+    wildcard_value: str | None = None
+) -> list[str]:
     existing = []
     for track in playlist:
         title = track.get("title")
@@ -68,10 +68,10 @@ def find_existing_files(
     return existing
 
 def move_incorrectly_placed_files(
-    playlist: List[Dict[str, Any]],
+    playlist: list[dict[str, Any]],
     root_folder: str,
-    organizing_schema: List[str],
-    wildcard_value: Optional[str] = None
+    organizing_schema: list[str],
+    wildcard_value: str | None = None
 ) -> None:
     for track in playlist:
         title = track.get("title")
@@ -98,10 +98,10 @@ def move_incorrectly_placed_files(
                     break
 
 def download_missing_songs(
-    playlist: List[Dict[str, Any]],
+    playlist: list[dict[str, Any]],
     root_folder: str,
-    organizing_schema: List[str],
-    wildcard_value: Optional[str] = None
+    organizing_schema: list[str],
+    wildcard_value: str | None = None
 ) -> None:
     from app.controllers.song_aquisition.get_check_enhance_song import get_check_enhance_song
     for track in playlist:
@@ -155,10 +155,10 @@ def download_missing_songs(
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
 def integrate_playlist(
-    playlist: List[Dict[str, Any]],
+    playlist: list[dict[str, Any]],
     root_folder: str,
-    organizing_schema: List[str],
-    wildcard_value: Optional[str] = None
+    organizing_schema: list[str],
+    wildcard_value: str | None = None
 ) -> None:
     existing = find_existing_files(
         playlist,

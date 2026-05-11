@@ -1,6 +1,3 @@
-import logging
-import sys
-from typing import Optional
 import os
 
 import yt_dlp
@@ -12,7 +9,7 @@ logger = simple_logger(__name__)
 def download_audio_from_youtube(
     youtube_url: str,
     output_directory: str,
-    output_filename: Optional[str] = None
+    output_filename: str | None = None
 ) -> str:
     """
     Download audio from the given YouTube URL and save it in the specified directory using yt-dlp.

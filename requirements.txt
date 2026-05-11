@@ -1,5 +1,2 @@
-requests
-spotipy
-yt-dlp
-shazamio
-mutagenCE
+# Dependencies are managed in pyproject.toml.
+# Install with: pip install -e ".[dev]"

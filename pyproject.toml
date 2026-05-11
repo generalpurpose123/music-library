@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "music-library"
+version = "0.1.0"
+description = "Local music library manager: fetch playlists, download audio, recognise tracks, and organise files with ID3 metadata."
+authors = [
+    { name = "Your Name", email = "you@example.com" },
+]
+requires-python = ">=3.14"
+dependencies = [
+    "requests>=2.32",
+    "spotipy>=2.24",
+    "yt-dlp>=2024.1.1",
+    "shazamio>=0.7.0",
+    "mutagen>=1.47",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+music-library = "main:main"

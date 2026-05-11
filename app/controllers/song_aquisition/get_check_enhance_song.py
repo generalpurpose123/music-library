@@ -1,6 +1,5 @@
 import os
 import asyncio
-from typing import Optional, List
 
 import yt_dlp
 
@@ -17,7 +16,7 @@ def search_youtube_via_yt_dlp(
     song_name: str,
     max_results: int = 5,
     add_lyrics_to_query: bool = True
-) -> List[str]:
+) -> list[str]:
     """
     Search YouTube for top video results matching "artist_name + song_name (+ lyrics)" using yt-dlp.
 
@@ -63,9 +62,9 @@ def get_check_enhance_song(
     artist_name: str,
     song_name: str,
     output_directory: str,
-    output_filename: Optional[str] = None,
+    output_filename: str | None = None,
     max_retry: int = 3
-) -> Optional[str]:
+) -> str | None:
     """
     Search YouTube for the given artist and song using yt-dlp (no API key), download as MP3, verify metadata via Shazam,
     and if correct, attach ID3 tags.

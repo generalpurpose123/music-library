@@ -1,8 +1,7 @@
 import asyncio
 import io
 import logging
-import sys
-from typing import Optional, Dict, Any, Union
+from typing import Any
 
 import requests
 from shazamio import Shazam
@@ -12,7 +11,7 @@ from app.tools.make_logger import simple_logger
 logger = simple_logger(__name__)
 
 
-def fetch_lyrics_from_lyrics_ovh(artist: str, title: str) -> Optional[str]:
+def fetch_lyrics_from_lyrics_ovh(artist: str, title: str) -> str | None:
     """
     Attempt to fetch lyrics from the lyrics.ovh public API.
 
@@ -31,7 +30,7 @@ def fetch_lyrics_from_lyrics_ovh(artist: str, title: str) -> Optional[str]:
     return None
 
 
-def fetch_lyrics_second_source(artist: str, title: str) -> Optional[str]:
+def fetch_lyrics_second_source(artist: str, title: str) -> str | None:
     """
     A placeholder for a second lyrics source.
     Replace or extend with a real service or parsing logic.
@@ -45,7 +44,7 @@ def fetch_lyrics_second_source(artist: str, title: str) -> Optional[str]:
     return None
 
 
-async def gather_song_info(file_path: str) -> Dict[str, Any]:
+async def gather_song_info(file_path: str) -> dict[str, Any]:
     """
     Recognize a local audio file using Shazam, extract relevant metadata, and return it.
 
@@ -64,7 +63,7 @@ async def gather_song_info(file_path: str) -> Dict[str, Any]:
     shazam = Shazam()
 
     logger.debug("Attempting to recognize song...")
-    result = await shazam.recognize_song(file_path)
+    result = await shazam.recognize(file_path)
     track_info = result.get("track", {})
     logger.debug("Song recognition result obtained.")
 
@@ -128,7 +127,7 @@ async def gather_song_info(file_path: str) -> Dict[str, Any]:
     # ------------------------------------------------
     images = track_info.get("images", {})
     cover_art_url = images.get("coverarthq") or images.get("coverart")
-    album_art_file: Union[io.BytesIO, None] = None
+    album_art_file: io.BytesIO | None = None
 
     if cover_art_url:
         logger.debug(f"Attempting to download album art from: {cover_art_url}")

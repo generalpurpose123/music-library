@@ -11,7 +11,7 @@ class Song:
     title: str
     artist: str
     album: str
-    _file: Any = dataclasses.field(default_factory=lambda: io.StringIO(""))
+    _file: Any = dataclasses.field(default_factory=lambda: io.BytesIO(b""))
 
     def save(self, target_path: str):
         with open(target_path, "wb") as out_file:
