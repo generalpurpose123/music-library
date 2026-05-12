@@ -19,5 +19,16 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+(function() {
+  var path = window.location.pathname.replace(/\/$/, '') || '/';
+  document.querySelectorAll('nav a').forEach(function(a) {
+    var href = a.getAttribute('href').replace(/\/$/, '') || '/';
+    if (href === path || (href !== '/' && path.startsWith(href))) {
+      a.classList.add('nav-active');
+    }
+  });
+})();
+  </script>
 </body>
 </html>

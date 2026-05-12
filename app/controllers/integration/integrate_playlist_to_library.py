@@ -17,9 +17,9 @@ VALID_SCHEMA_KEYWORDS = {"artist", "album", "title", "wildcard"}
 
 
 def sanitize_fs_name(s: str) -> str:
-    # Strip everything that isn't alphanumeric, whitespace, underscore, or hyphen
-    # to prevent filesystem special characters from corrupting paths or shell expansion.
-    return re.sub(r"[^a-zA-Z0-9\s_-]", "", s).strip()
+    # Strip filesystem-unsafe characters (/, :, *, ?, ", <, >, |, etc.) while
+    # preserving Unicode letters and digits so names like "Björk" are not mangled.
+    return re.sub(r"[^\w\s_-]", "", s, flags=re.UNICODE).strip()
 
 def strip_feature(artist: str) -> str:
     return re.sub(r"\(feat[^)]*\)|\[feat[^]]*\]", "", artist, flags=re.IGNORECASE).strip()

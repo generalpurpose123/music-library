@@ -7,6 +7,8 @@ from mutagen.id3 import (
     TPE1,
     TIT2,
     TALB,
+    TCON,
+    TSRC,
     TYER,
     ID3NoHeaderError,
 )
@@ -76,6 +78,14 @@ def attach_id3_metadata(mp3_path: str, metadata: dict[str, Any]) -> None:
         year = optional_metadata.get("year")
         if year:
             audio["TYER"] = TYER(encoding=3, text=year)
+
+        genre = optional_metadata.get("genre")
+        if genre:
+            audio["TCON"] = TCON(encoding=3, text=genre)
+
+        isrc = optional_metadata.get("isrc")
+        if isrc:
+            audio["TSRC"] = TSRC(encoding=3, text=isrc)
 
         # ------------------------------------------------
         # 4) Lyrics

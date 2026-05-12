@@ -135,7 +135,7 @@ def _run_integration(
 ) -> None:
     """Run in a thread pool thread. Writes job state to disk; SSE picks it up."""
     from app.controllers.integration.integrate_playlist_to_library import integrate_playlist
-    from app.controllers.integration.job_state import new_job, LibraryLock, TrackStatus
+    from app.controllers.integration.job_state import new_job, TrackStatus
 
     log_q = _log_queues.setdefault(job_id, queue.Queue())
 
@@ -150,13 +150,12 @@ def _run_integration(
         job.job_id = job_id
         job.save()
 
-        with LibraryLock(root_folder):
-            integrate_playlist(
-                playlist=playlist,
-                root_folder=root_folder,
-                organizing_schema=organizing_schema,
-                wildcard_value=wildcard_value,
-            )
+        integrate_playlist(
+            playlist=playlist,
+            root_folder=root_folder,
+            organizing_schema=organizing_schema,
+            wildcard_value=wildcard_value,
+        )
 
         # Mark all pending/downloading tracks as done in the job file so SSE can close
         job = _load_job(root_folder, job_id)
@@ -223,8 +222,8 @@ def _run_single_download(
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     root = _library_root()
-    mp3_count = await asyncio.get_event_loop().run_in_executor(_executor, _count_mp3s, root)
-    recent = await asyncio.get_event_loop().run_in_executor(_executor, _recent_jobs, root)
+    mp3_count = await asyncio.get_running_loop().run_in_executor(_executor, _count_mp3s, root)
+    recent = await asyncio.get_running_loop().run_in_executor(_executor, _recent_jobs, root)
     return templates.TemplateResponse("index.html", {
         "request": request,
         "library_root": root,
@@ -278,7 +277,7 @@ async def sync_fetch(
     from app.controllers.playlist_aquisition.get_spotify_playlist import get_spotify_playlist
 
     try:
-        tracks = await asyncio.get_event_loop().run_in_executor(
+        tracks = await asyncio.get_running_loop().run_in_executor(
             _executor, get_spotify_playlist, playlist_url
         )
     except Exception as exc:
@@ -431,12 +430,12 @@ async def browse_scan(folder: str = Form(...)):
                 rows.append((os.path.relpath(full, path), title, artist, album))
         return rows
 
-    rows = await asyncio.get_event_loop().run_in_executor(_executor, _scan, folder)
+    rows = await asyncio.get_running_loop().run_in_executor(_executor, _scan, folder)
 
     if not rows:
         return HTMLResponse('<div class="warning">No MP3 files found in this folder.</div>')
 
-    display = rows[:50]
+    display = rows[:500]
     more = len(rows) - len(display)
     rows_html = "\n".join(
         f"<tr><td class='mono'>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>"
@@ -447,12 +446,25 @@ async def browse_scan(folder: str = Form(...)):
     return HTMLResponse(f"""
 <div id="scan-result">
   {note}
+  <div class="form-group" style="max-width:400px;margin-bottom:0.75rem">
+    <input type="text" id="browse-filter" placeholder="Filter by path, title, artist&#x2026;"
+           class="input-wide" oninput="filterBrowseTable(this.value)">
+  </div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>Path</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
       <tbody>{rows_html}</tbody>
     </table>
   </div>
+  <script>
+function filterBrowseTable(q) {{
+  var lower = q.toLowerCase();
+  document.querySelectorAll('#scan-result tbody tr').forEach(function(row) {{
+    var text = row.textContent.toLowerCase();
+    row.style.display = text.includes(lower) ? '' : 'none';
+  }});
+}}
+  </script>
 </div>
 """)
 
