@@ -50,12 +50,15 @@ class TestSanitizeFsName:
         assert "AC" in result
         assert "DC" in result
 
-    def test_unicode_chars_stripped(self):
-        # Unicode letters like é, ö, ü are not ASCII alphanumeric — they get removed
+    def test_unicode_chars_preserved(self):
+        # Unicode letters are now preserved by sanitize_fs_name
         result = sanitize_fs_name("Björk")
-        # 'j', 'r', 'k', 'B' remain; 'ö' is stripped
+        # All letters remain, including the Unicode 'ö'
+        assert "B" in result
         assert "j" in result
-        assert "ö" not in result
+        assert "r" in result
+        assert "k" in result
+        assert "ö" in result
 
     def test_empty_string_returns_empty(self):
         assert sanitize_fs_name("") == ""
@@ -328,7 +331,7 @@ class TestIntegratePlaylist:
         # get_check_enhance_song is imported lazily inside download_missing_songs;
         # patch it at the source module level.
         with patch(
-            "app.controllers.song_aquisition.get_check_enhance_song.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
         ) as mock_get_song, patch("asyncio.new_event_loop", return_value=loop_mock):
             mock_get_song.return_value = downloaded_file
             integrate_playlist(tracks, root, schema)
@@ -364,7 +367,7 @@ class TestIntegratePlaylist:
         loop_mock.run_until_complete.return_value = {"album_name": "Unknown Album"}
 
         with patch(
-            "app.controllers.song_aquisition.get_check_enhance_song.get_check_enhance_song",
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
             side_effect=side_effect,
         ), patch("asyncio.new_event_loop", return_value=loop_mock):
             # Should not raise even when first track download returns None
@@ -395,7 +398,7 @@ class TestIntegratePlaylist:
         loop_mock.run_until_complete.return_value = {"album_name": "Unknown Album"}
 
         with patch(
-            "app.controllers.song_aquisition.get_check_enhance_song.get_check_enhance_song",
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
         ) as mock_get_song, patch("asyncio.new_event_loop", return_value=loop_mock):
             mock_get_song.return_value = downloaded_file
             download_missing_songs([track], root, schema)
