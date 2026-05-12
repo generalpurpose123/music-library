@@ -75,8 +75,8 @@ class TestUnicodeArtistNames:
     def test_bjork_sanitized_without_crash(self):
         result = sanitize_fs_name("Björk")
         assert isinstance(result, str)
-        assert "ö" not in result  # Non-ASCII stripped
-        assert "j" in result     # ASCII letters remain
+        assert "ö" in result     # Unicode letters preserved
+        assert "j" in result
 
     def test_bts_korean_sanitized_without_crash(self):
         result = sanitize_fs_name("방탄소년단")
@@ -87,8 +87,8 @@ class TestUnicodeArtistNames:
     def test_sigur_ros_sanitized_without_crash(self):
         result = sanitize_fs_name("Sigur Rós")
         assert isinstance(result, str)
-        assert "ó" not in result
-        assert "Sigur" in result  # ASCII portion preserved
+        assert "ó" in result     # Unicode letters preserved
+        assert "Sigur" in result
 
     def test_build_path_with_unicode_artist_no_crash(self, tmp_path):
         root = str(tmp_path)
