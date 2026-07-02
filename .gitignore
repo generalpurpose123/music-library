@@ -46,7 +46,7 @@ env.bak/
 venv.bak/
 
 # ── Credentials / secrets ─────────────────────────────────────────────────────
-app/config/local_config.py
+# local_config.py only reads env vars — the actual secrets live in .env
 .env
 .env.*
 *.secret

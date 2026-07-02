@@ -100,16 +100,6 @@ def _load_job(root_folder: str, job_id: str):
         return Job.from_json(f.read())
 
 
-def _patch_spotify_env() -> None:
-    """Reload Spotify credentials from env into the already-imported config module."""
-    try:
-        import app.config.local_config as cfg
-        cfg.SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
-        cfg.SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-    except Exception:
-        pass
-
-
 # ---------------------------------------------------------------------------
 # Background integration task
 # ---------------------------------------------------------------------------
@@ -272,7 +262,6 @@ async def sync_fetch(
     schema: str = Form("artist/album"),
     wildcard: str = Form(""),
 ):
-    _patch_spotify_env()
     from app.controllers.playlist_aquisition.get_spotify_playlist import get_spotify_playlist
 
     try:
@@ -552,7 +541,6 @@ async def settings_save(
         set_key(env_path, "MUSIC_LIBRARY_ROOT", library_root.strip())
         os.environ["MUSIC_LIBRARY_ROOT"] = library_root.strip()
 
-    _patch_spotify_env()
 
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())

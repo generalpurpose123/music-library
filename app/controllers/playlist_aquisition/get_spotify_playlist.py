@@ -2,10 +2,11 @@ import logging
 import re
 
 import spotipy
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 
 from app.tools.make_logger import simple_logger
-from app.config.local_config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+from app.config.local_config import get_spotify_credentials
 from app.models.exceptions import CredentialsError, PlaylistFetchError
 
 logger = simple_logger(__name__)
@@ -45,9 +46,11 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str | None]]:
             playlist_url="https://open.spotify.com/playlist/123...",
         )
     """
-    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    client_id, client_secret = get_spotify_credentials()
+    if not client_id or not client_secret:
         raise CredentialsError(
-            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set. See local_config.py.example."
+            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set — add them to .env "
+            "at the project root or enter them on the Settings page."
         )
 
     playlist_id = extract_playlist_id(playlist_url)
@@ -58,8 +61,8 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str | None]]:
 
     # Authenticate with Spotify using credentials loaded from environment
     client_credentials_manager = SpotifyClientCredentials(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET
+        client_id=client_id,
+        client_secret=client_secret
     )
     sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
@@ -106,6 +109,16 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str | None]]:
         return tracks_data
     except (CredentialsError, PlaylistFetchError):
         raise
+    except SpotifyException as e:
+        logger.exception(f"Spotify API error retrieving playlist: {e}")
+        if e.http_status in (401, 403, 404):
+            raise PlaylistFetchError(
+                f"Spotify refused access to this playlist (HTTP {e.http_status}). This app "
+                "uses the Client Credentials flow, which cannot read private, collaborative, "
+                "or Spotify-generated (editorial) playlists — make the playlist public or "
+                "pick a different one."
+            ) from e
+        raise PlaylistFetchError(f"Failed to retrieve Spotify playlist '{playlist_id}': {e}") from e
     except Exception as e:
         logger.exception(f"Error retrieving Spotify playlist: {e}")
         raise PlaylistFetchError(f"Failed to retrieve Spotify playlist '{playlist_id}': {e}") from e
