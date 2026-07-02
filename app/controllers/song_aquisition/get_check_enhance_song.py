@@ -4,6 +4,7 @@ from typing import Any, NamedTuple
 
 import yt_dlp
 
+from app.config.local_config import get_ytdlp_throttle_opts
 from app.tools.make_logger import simple_logger
 from app.tools.track_matching import artists_match, titles_match
 from app.controllers.song_aquisition.youtube.yt_dlp_downloader import download_audio_from_youtube
@@ -49,6 +50,7 @@ def search_youtube_via_yt_dlp(
     ydl_opts = {
         'quiet': True,
         'logger': logger,
+        **get_ytdlp_throttle_opts(),
     }
 
     try:

@@ -7,17 +7,23 @@ Given a Spotify playlist URL, music-library fetches the track listing, searches 
 ## Features
 
 - Fetch full track listings from any public Spotify playlist, including paginated playlists over 100 tracks
-- Search and download audio from YouTube via yt-dlp — no YouTube API key required
-- Verify each download with Shazam recognition before keeping it; retry with the next search result on mismatch
-- Attach complete ID3 metadata: title, artist, album, year, genre, ISRC, lyrics, and embedded album art
-- Fetch lyrics from Shazam; fall back to lyrics.ovh if Shazam does not provide them
+- **Two acquisition modes** (chosen per sync): **Compliant** — legal sources only (Jamendo, Internet Archive, files you own), with a purchase list for everything else; or **YouTube** — download via yt-dlp
+- Verify each acquisition against the requested artist/title (decoration-aware) before keeping it
+- Attach complete ID3 metadata: title, artist, album, year, genre, ISRC, lyrics, album art, and the Creative-Commons licence URL for CC sources
 - Organise the library by a configurable schema (e.g. `artist/album/`) with automatic folder creation
 - Detect and move files that are already downloaded but placed in the wrong folder
-- FastAPI + HTMX web frontend with live job progress (SSE)
+- FastAPI + HTMX web frontend with live job progress (SSE) and a per-job purchase manifest (CSV/HTML)
 
 ## Architecture
 
-The pipeline has four main stages. `get_spotify_playlist` authenticates with the Spotify API using client credentials and returns a list of `{title, artist, album}` dicts, handling pagination automatically. `get_check_enhance_song` takes a single track, searches YouTube via yt-dlp, downloads the top result as an MP3, runs it through Shazam for recognition, and attaches ID3 tags; if the recognised track does not match the target it discards the file and tries the next search result, up to `max_retry` times — it returns a `SongDownloadResult` carrying the file path and the recognition metadata. `gather_song_info` is the Shazam wrapper that also fetches album art and lyrics. `integrate_playlist` is the top-level orchestrator: it checks which tracks from the playlist already exist at their correct paths, moves any that are misplaced (only on a normalized-exact tag match), and calls `get_check_enhance_song` for those that are missing.
+The pipeline has four main stages. `get_spotify_playlist` authenticates with the Spotify API using client credentials and returns a list of `{title, artist, album}` dicts, handling pagination automatically. Acquisition is pluggable: an `AudioSourceProvider` chain (selected by `mode` in `app/controllers/song_aquisition/providers/registry.py`) tries each source and returns a `SongDownloadResult` on the first verified hit or `None` on a miss; every provider verifies the candidate's own metadata with `app/tools/track_matching.py` so an unrelated track is a miss, not a wrong download. `integrate_playlist` is the top-level orchestrator: it checks which tracks already exist, moves any that are misplaced (only on a normalized-exact tag match), calls the provider chain for those that are missing, and records each track's outcome in a resumable job file. Tracks no compliant source can supply are marked `UNAVAILABLE` and exported to a purchase manifest.
+
+## Acquisition modes
+
+Pick a mode on the **Sync** (or **Download Song**) page:
+
+- **Compliant** (default) — tries, in order: files you already own (`MUSIC_IMPORT_FOLDER`), then Jamendo (free/Creative-Commons, needs a free API key), then the Internet Archive (public-domain / netlabel / live audio). Anything not found on those is **not downloaded** — it is added to a **purchase list** (CSV + HTML under the job folder, linked from the job page) with deep search links to Bandcamp, Qobuz, Apple Music, and Amazon. Because mainstream commercial music is generally not on the free sources, expect a typical Spotify playlist to yield mostly purchase-list entries — that is the honest, lawful result.
+- **YouTube** — searches YouTube and downloads via yt-dlp, verifying each result. **This may breach YouTube's Terms of Service and, in some countries, copyright law — see the Legal Notice.** See *YouTube reliability* below for rate-limiting.
 
 ## Getting Started
 
@@ -52,6 +58,10 @@ Alternatively, start the frontend and enter the credentials on the **Settings** 
 
 Get your credentials from https://developer.spotify.com/dashboard — create an app, then copy the Client ID and Client Secret. No redirect URI is needed; this tool uses the Client Credentials flow and does not access private user data. Note: for the same reason it can only read **public** playlists — private, collaborative, and Spotify-generated (editorial) playlists are not accessible.
 
+**Optional — Jamendo (compliant mode downloads):** register a free app at https://devportal.jamendo.com and set `JAMENDO_CLIENT_ID` in `.env` (or on the Settings page). Without it, compliant mode still runs — it just uses the Internet Archive and the purchase list only.
+
+**Optional — local import:** set `MUSIC_IMPORT_FOLDER` to a folder of MP3s you already own; in compliant mode a matching owned file is copied into the library instead of being downloaded.
+
 `.env` is gitignored and must never be committed.
 
 ### Running the Frontend
@@ -61,6 +71,17 @@ python main.py
 ```
 
 Then open http://127.0.0.1:8000. Equivalent alternatives: `music-library-serve` (after `pip install -e .`) or `uvicorn frontend.server:app`.
+
+### YouTube reliability (YouTube mode)
+
+YouTube increasingly challenges automated downloaders ("Sign in to confirm you're not a bot"), especially from datacenter or VPN/Tor IP ranges. This project's approach is to stay **anonymous and polite** from a normal residential connection rather than to hide the IP:
+
+- **Rate limiting is on by default.** yt-dlp is given `sleep_interval`/`max_sleep_interval`, `sleep_interval_requests`, and retry options. Tune via `.env`: `YTDLP_SLEEP_INTERVAL`, `YTDLP_MAX_SLEEP_INTERVAL`, `YTDLP_SLEEP_REQUESTS`, `YTDLP_RATELIMIT` (bytes/sec), `YTDLP_RETRIES`.
+- **Install a JavaScript runtime.** Recent yt-dlp needs one for full YouTube extraction (`deno`): `curl -fsSL https://deno.land/install.sh | sh` (or your package manager). Without it you'll see a "No supported JavaScript runtime" warning and some formats may be missing.
+- **Do not use Tor or datacenter proxies.** YouTube flags those IP ranges *harder*, so they make throttling worse, not better — and routing an infringing download through Tor does not make it lawful. There is intentionally no proxy/Tor option.
+- **Cookies (not enabled).** Passing a logged-in browser session (`--cookies-from-browser`) reduces bot challenges but re-links downloads to your account (a ban vector) and is deliberately left out; add it yourself only if you accept that trade-off.
+
+The best mitigation is simply to prefer **compliant mode**.
 
 ### Programmatic Usage
 

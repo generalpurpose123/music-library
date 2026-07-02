@@ -45,6 +45,19 @@ class TestSearchYoutubeViaYtDlp:
         ]
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.yt_dlp.YoutubeDL")
+    def test_throttle_opts_injected_into_search(self, mock_ydl_cls):
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"entries": []}
+        mock_ydl_cls.return_value = mock_ydl
+
+        search_youtube_via_yt_dlp("Artist", "Song")
+
+        opts = mock_ydl_cls.call_args[0][0]
+        assert "sleep_interval" in opts and "retries" in opts
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.yt_dlp.YoutubeDL")
     def test_empty_entries_returns_empty_list(self, mock_ydl_cls):
         mock_ydl = MagicMock()
         mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
@@ -428,6 +441,22 @@ class TestDownloadAudioFromYoutube:
         result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
 
         assert result == expected_mp3
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_throttle_opts_injected_into_download(self, mock_ydl_cls, tmp_path):
+        output_dir = str(tmp_path)
+        expected_mp3 = os.path.join(output_dir, "V.mp3")
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"requested_downloads": [{"filepath": expected_mp3}]}
+        mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
+
+        download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+        opts = mock_ydl_cls.call_args[0][0]
+        assert "sleep_interval" in opts and "retries" in opts
 
     @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
     def test_custom_filename_used_in_outtmpl(self, mock_ydl_cls, tmp_path):

@@ -2,6 +2,7 @@ import os
 
 import yt_dlp
 
+from app.config.local_config import get_ytdlp_throttle_opts
 from app.models.exceptions import DownloadError
 from app.tools.make_logger import simple_logger
 
@@ -47,6 +48,7 @@ def download_audio_from_youtube(
         ],
         'logger': logger,
         'quiet': True,  # We'll handle logging ourselves.
+        **get_ytdlp_throttle_opts(),
     }
 
     try:
