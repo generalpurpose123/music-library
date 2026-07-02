@@ -13,17 +13,17 @@ Given a Spotify playlist URL, music-library fetches the track listing, searches 
 - Fetch lyrics from Shazam; fall back to lyrics.ovh if Shazam does not provide them
 - Organise the library by a configurable schema (e.g. `artist/album/`) with automatic folder creation
 - Detect and move files that are already downloaded but placed in the wrong folder
-- Streamlit frontend for non-programmatic use
+- FastAPI + HTMX web frontend with live job progress (SSE)
 
 ## Architecture
 
-The pipeline has four main stages. `get_spotify_playlist` authenticates with the Spotify API using client credentials and returns a list of `{title, artist}` dicts, handling pagination automatically. `get_check_enhance_song` takes a single track, searches YouTube via yt-dlp, downloads the top result as an MP3, runs it through Shazam for recognition, and attaches ID3 tags; if the recognised track does not match the target it discards the file and tries the next search result, up to `max_retry` times. `gather_song_info` is the Shazam wrapper that also fetches album art and lyrics. `integrate_playlist` is the top-level orchestrator: it checks which tracks from the playlist already exist at their correct paths, moves any that are misplaced, and calls `get_check_enhance_song` for those that are missing.
+The pipeline has four main stages. `get_spotify_playlist` authenticates with the Spotify API using client credentials and returns a list of `{title, artist, album}` dicts, handling pagination automatically. `get_check_enhance_song` takes a single track, searches YouTube via yt-dlp, downloads the top result as an MP3, runs it through Shazam for recognition, and attaches ID3 tags; if the recognised track does not match the target it discards the file and tries the next search result, up to `max_retry` times — it returns a `SongDownloadResult` carrying the file path and the recognition metadata. `gather_song_info` is the Shazam wrapper that also fetches album art and lyrics. `integrate_playlist` is the top-level orchestrator: it checks which tracks from the playlist already exist at their correct paths, moves any that are misplaced (only on a normalized-exact tag match), and calls `get_check_enhance_song` for those that are missing.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.14+
+- Python 3.12+
 - ffmpeg — required by yt-dlp for audio conversion (`sudo apt install ffmpeg` or `brew install ffmpeg`)
 - A Spotify Developer account with an app registered at https://developer.spotify.com/dashboard
 
@@ -32,39 +32,35 @@ The pipeline has four main stages. `get_spotify_playlist` authenticates with the
 ```bash
 git clone https://github.com/generalpurpose123/music-library.git
 cd music-library
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ### Credentials Setup
 
-Copy the example config and fill in your Spotify credentials:
+Copy the example env file to the project root and fill in your Spotify credentials:
 
 ```bash
-cp app/config/local_config.py.example app/config/local_config.py
+cp .env.example .env
 ```
 
-Edit `app/config/local_config.py`:
-
-```python
-SPOTIFY_CLIENT_ID = "your_spotify_client_id_here"
-SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret_here"
+```dotenv
+SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
 ```
 
-Get your credentials from https://developer.spotify.com/dashboard — create an app, then copy the Client ID and Client Secret. No redirect URI is needed; this tool uses the Client Credentials flow and does not access private user data.
+Alternatively, start the frontend and enter the credentials on the **Settings** page — it writes the same `.env` file. Credentials take effect immediately; no restart needed.
 
-`local_config.py` is gitignored and must never be committed.
+Get your credentials from https://developer.spotify.com/dashboard — create an app, then copy the Client ID and Client Secret. No redirect URI is needed; this tool uses the Client Credentials flow and does not access private user data. Note: for the same reason it can only read **public** playlists — private, collaborative, and Spotify-generated (editorial) playlists are not accessible.
+
+`.env` is gitignored and must never be committed.
 
 ### Running the Frontend
 
 ```bash
-streamlit run frontend/app.py
-```
-
-Or via the entry point:
-
-```bash
 python main.py
 ```
+
+Then open http://127.0.0.1:8000. Equivalent alternatives: `music-library-serve` (after `pip install -e .`) or `uvicorn frontend.server:app`.
 
 ### Programmatic Usage
 
@@ -107,21 +103,20 @@ If `organizing_schema` omits `"album"`, all tracks for an artist are placed dire
 
 ## Legal Notice
 
-This tool is intended for **personal use only**, to help organise music you legally own or otherwise have the right to download.
+This tool is intended for **personal, non-commercial use only**, to help organise music you legally own or otherwise have the right to download.
 
-Downloading copyrighted music without the rights holder's permission may be illegal in your jurisdiction. Laws vary by country. It is your responsibility to understand and comply with applicable copyright law before using this tool.
+Be aware of what using this tool involves:
+
+- **YouTube:** downloading content is against the YouTube Terms of Service unless YouTube provides an explicit download feature for it. Whether a personal copy is additionally a copyright issue depends on your jurisdiction (e.g. private-copy exceptions in parts of the EU); this is legally unsettled territory.
+- **Spotify:** only public playlist metadata (title/artist/album) is read via the official Web API, but using that metadata to source audio elsewhere may conflict with the Spotify Developer Policy. The realistic consequence is revocation of your API credentials.
+- **Shazam:** recognition uses an unofficial API via `shazamio`; heavy use may get rate-limited or blocked.
+
+Downloading copyrighted music without the rights holder's permission may be illegal in your jurisdiction. Laws vary by country. It is your responsibility to understand and comply with applicable law and the providers' terms before using this tool.
 
 The authors of this project accept no liability for any misuse, including but not limited to downloading or distributing copyrighted material without authorisation.
 
-Audio files (`.mp3`, `.mp4`, `.flac`, etc.) are gitignored and must never be committed or pushed to GitHub.
-
-## Contributing
-
-1. Fork the repository and create a feature branch.
-2. Keep changes focused — one concern per pull request.
-3. Ensure existing behaviour is not broken; add tests for new logic under `tests/`.
-4. Open a pull request with a clear description of what was changed and why.
+Never redistribute downloaded files, serve them beyond your own devices, or use them commercially. Audio files (`.mp3`, `.mp4`, `.flac`, etc.) are gitignored and must never be committed or pushed to GitHub.
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE)
+Private, personal project — all rights reserved. See [LICENSE](LICENSE). Not licensed for redistribution or third-party use.
