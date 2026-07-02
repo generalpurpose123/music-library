@@ -238,6 +238,7 @@ tr:hover td { background: rgba(255,255,255,0.03); }
 .badge-failed     { background: var(--c-failed);       color: #fff; }
 .badge-pending    { background: var(--c-pending);      color: #ccc; }
 .badge-skipped    { background: var(--c-skipped);      color: #ccc; }
+.badge-unavailable{ background: #7a5c00;               color: #fff; }
 
 /* ------------------------------------------------------------------ */
 /* Notices                                                              */

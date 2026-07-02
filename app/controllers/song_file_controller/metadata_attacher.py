@@ -11,6 +11,8 @@ from mutagen.id3 import (
     TCON,
     TSRC,
     TYER,
+    WCOP,
+    COMM,
     ID3NoHeaderError,
 )
 
@@ -100,6 +102,17 @@ def attach_id3_metadata(mp3_path: str, metadata: dict[str, Any]) -> None:
         lyrics_text = metadata.get("lyrics")
         if lyrics_text:
             audio["USLT"] = USLT(encoding=3, desc="Lyrics", text=lyrics_text)
+
+        # ------------------------------------------------
+        # 4b) License / copyright URL (e.g. Creative Commons from Jamendo)
+        # ------------------------------------------------
+        license_url = metadata.get("license_url")
+        if license_url:
+            audio["WCOP"] = WCOP(url=license_url)
+            audio["COMM"] = COMM(
+                encoding=3, lang="eng", desc="License",
+                text=f"Licensed under: {license_url}",
+            )
 
         # ------------------------------------------------
         # 5) Album cover art

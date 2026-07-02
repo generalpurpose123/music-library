@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from typing import Any
 
 from dotenv import load_dotenv, set_key
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
@@ -122,6 +123,7 @@ def _run_integration(
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None,
+    mode: str = "youtube",
 ) -> None:
     """Run in a thread pool thread. Writes job state to disk; SSE picks it up."""
     from app.controllers.integration.integrate_playlist_to_library import integrate_playlist
@@ -135,7 +137,7 @@ def _run_integration(
     root_logger.addHandler(handler)
 
     try:
-        job = new_job(playlist, root_folder, organizing_schema, wildcard_value)
+        job = new_job(playlist, root_folder, organizing_schema, wildcard_value, mode=mode)
         # Override the generated job_id with the one we already handed to the client
         job.job_id = job_id
         job.save()
@@ -145,6 +147,7 @@ def _run_integration(
             root_folder=root_folder,
             organizing_schema=organizing_schema,
             wildcard_value=wildcard_value,
+            mode=mode,
         )
 
         # Mark all pending/downloading tracks as done in the job file so SSE can close
@@ -175,9 +178,10 @@ def _run_single_download(
     artist: str,
     song: str,
     output_folder: str,
+    mode: str = "youtube",
 ) -> None:
     """Run single song download in a thread. Streams logs via queue."""
-    from app.controllers.song_aquisition.get_check_enhance_song import get_check_enhance_song
+    from app.controllers.song_aquisition.providers.registry import acquire_track
 
     log_q = _log_queues.setdefault(job_id, queue.Queue())
     root_logger = logging.getLogger()
@@ -187,16 +191,21 @@ def _run_single_download(
 
     try:
         os.makedirs(output_folder, exist_ok=True)
-        result = get_check_enhance_song(
-            artist_name=artist,
-            song_name=song,
-            output_directory=output_folder,
-            output_filename=None,
-            max_retry=3,
+        result, source = acquire_track(
+            artist, song, None, output_folder, mode=mode,
         )
-        if result.tag_error:
-            log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
-        log_q.put(f"SUCCESS: Downloaded to {result.path}")
+        if result is None:
+            if mode == "compliant":
+                log_q.put(
+                    "UNAVAILABLE: Not found on any compliant source. Try YouTube mode "
+                    "or buy the track (Bandcamp / Qobuz / Apple / Amazon)."
+                )
+            else:
+                log_q.put("ERROR: No matching track could be downloaded.")
+        else:
+            if result.tag_error:
+                log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
+            log_q.put(f"SUCCESS: Downloaded to {result.path} (source: {source})")
     except Exception as exc:
         log_q.put(f"ERROR: {exc}")
     finally:
@@ -241,10 +250,12 @@ async def download_page(request: Request):
 async def settings_page(request: Request):
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
+    jamendo_client_id_set = bool(os.environ.get("JAMENDO_CLIENT_ID", "").strip())
     root = _library_root()
     return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
+        "jamendo_client_id_set": jamendo_client_id_set,
         "library_root": root,
     })
 
@@ -259,8 +270,11 @@ async def sync_fetch(
     playlist_url: str = Form(...),
     schema: str = Form("artist/album"),
     wildcard: str = Form(""),
+    mode: str = Form("compliant"),
 ):
     from app.controllers.playlist_aquisition.get_spotify_playlist import get_spotify_playlist
+
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
 
     try:
         tracks = await asyncio.get_running_loop().run_in_executor(
@@ -282,10 +296,20 @@ async def sync_fetch(
     tracks_json = json.dumps(tracks)
     schema_json = json.dumps(schema_list)
     wildcard_safe = wildcard.replace('"', "&quot;")
+    mode_label = "Compliant (Jamendo / Internet Archive + buy-list)" if mode == "compliant" else "YouTube"
+
+    notice = ""
+    if mode == "compliant" and not os.environ.get("JAMENDO_CLIENT_ID", "").strip():
+        notice = (
+            '<p class="notice">No Jamendo API key set — compliant mode will only use '
+            'Internet Archive and the purchase list. Add a key on the Settings page to '
+            'enable Jamendo downloads.</p>'
+        )
 
     return HTMLResponse(f"""
 <div id="fetch-result">
-  <p class="success">{len(tracks)} tracks found.</p>
+  <p class="success">{len(tracks)} tracks found. Acquisition mode: <strong>{mode_label}</strong>.</p>
+  {notice}
   <div class="table-wrap">
     <table>
       <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
@@ -296,6 +320,7 @@ async def sync_fetch(
     <input type="hidden" name="playlist_json" value="{tracks_json.replace('"', '&quot;')}">
     <input type="hidden" name="schema_json" value="{schema_json.replace('"', '&quot;')}">
     <input type="hidden" name="wildcard" value="{wildcard_safe}">
+    <input type="hidden" name="mode" value="{mode}">
     <button type="submit" class="btn-primary">Start Sync ({len(tracks)} tracks)</button>
   </form>
 </div>
@@ -307,6 +332,7 @@ async def sync_start(
     playlist_json: str = Form(...),
     schema_json: str = Form(...),
     wildcard: str = Form(""),
+    mode: str = Form("compliant"),
 ):
     import uuid
     root = _library_root()
@@ -315,9 +341,10 @@ async def sync_start(
 
     playlist = json.loads(playlist_json)
     schema = json.loads(schema_json)
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
     job_id = str(uuid.uuid4())[:8]
 
-    _executor.submit(_run_integration, job_id, playlist, root, schema, wildcard or None)
+    _executor.submit(_run_integration, job_id, playlist, root, schema, wildcard or None, mode)
 
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -329,6 +356,28 @@ async def job_page(request: Request, job_id: str):
         "job_id": job_id,
         "root_folder": root,
     })
+
+
+def _purchase_manifest_path(job_id: str, ext: str) -> str | None:
+    """Resolve a job's purchase manifest path, guarding against path traversal."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", job_id):
+        return None
+    root = _library_root()
+    if not root:
+        return None
+    path = os.path.join(root, ".music_library_jobs", f"{job_id}_purchase.{ext}")
+    return path if os.path.isfile(path) else None
+
+
+@app.get("/jobs/{job_id}/purchase.{ext}")
+async def job_purchase_manifest(job_id: str, ext: str):
+    if ext not in ("csv", "html"):
+        return HTMLResponse('<div class="error">Unknown manifest format.</div>', status_code=404)
+    path = _purchase_manifest_path(job_id, ext)
+    if not path:
+        return HTMLResponse('<div class="error">No purchase list for this job.</div>', status_code=404)
+    media = "text/html" if ext == "html" else "text/csv"
+    return FileResponse(path, media_type=media, filename=f"purchase_{job_id}.{ext}")
 
 
 @app.get("/jobs/{job_id}/stream")
@@ -452,11 +501,13 @@ async def download_start(
     artist: str = Form(...),
     song: str = Form(...),
     output_folder: str = Form(...),
+    mode: str = Form("compliant"),
 ):
     import uuid
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
     job_id = str(uuid.uuid4())[:8]
 
-    _executor.submit(_run_single_download, job_id, artist, song, output_folder)
+    _executor.submit(_run_single_download, job_id, artist, song, output_folder, mode)
 
     return RedirectResponse(url=f"/download/progress/{job_id}", status_code=303)
 
@@ -504,6 +555,7 @@ async def settings_save(
     request: Request,
     spotify_client_id: str = Form(""),
     spotify_client_secret: str = Form(""),
+    jamendo_client_id: str = Form(""),
     library_root: str = Form(""),
 ):
     env_path = str(_ENV_FILE)
@@ -518,18 +570,23 @@ async def settings_save(
         set_key(env_path, "SPOTIFY_CLIENT_SECRET", spotify_client_secret.strip())
         os.environ["SPOTIFY_CLIENT_SECRET"] = spotify_client_secret.strip()
 
+    if jamendo_client_id.strip():
+        set_key(env_path, "JAMENDO_CLIENT_ID", jamendo_client_id.strip())
+        os.environ["JAMENDO_CLIENT_ID"] = jamendo_client_id.strip()
+
     if library_root.strip():
         set_key(env_path, "MUSIC_LIBRARY_ROOT", library_root.strip())
         os.environ["MUSIC_LIBRARY_ROOT"] = library_root.strip()
 
-
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
+    jamendo_client_id_set = bool(os.environ.get("JAMENDO_CLIENT_ID", "").strip())
     root = _library_root()
 
     return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
+        "jamendo_client_id_set": jamendo_client_id_set,
         "library_root": root,
         "saved": True,
     })

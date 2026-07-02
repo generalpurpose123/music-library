@@ -302,6 +302,22 @@ class TestAttachId3Metadata:
         year_value = str(tags.get("TYER") or tags.get("TDRC"))
         assert "2021" in year_value
 
+    def test_license_url_written_as_wcop(self, minimal_mp3):
+        """CC license URL (e.g. from Jamendo) is written to the WCOP copyright frame."""
+        metadata = self._minimal_metadata()
+        metadata["license_url"] = "https://creativecommons.org/licenses/by/3.0/"
+        attach_id3_metadata(minimal_mp3, metadata)
+
+        from mutagen.id3 import ID3
+        tags = ID3(minimal_mp3)
+        assert "WCOP" in tags
+        assert str(tags["WCOP"].url) == "https://creativecommons.org/licenses/by/3.0/"
+
+    def test_no_license_url_no_wcop(self, minimal_mp3):
+        attach_id3_metadata(minimal_mp3, self._minimal_metadata())
+        from mutagen.id3 import ID3
+        assert "WCOP" not in ID3(minimal_mp3)
+
     def test_year_skipped_when_absent(self, minimal_mp3):
         metadata = self._minimal_metadata(optional_metadata={})
         attach_id3_metadata(minimal_mp3, metadata)

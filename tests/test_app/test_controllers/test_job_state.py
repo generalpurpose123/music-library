@@ -121,6 +121,36 @@ class TestJobSerialization:
             restored = Job.from_json(data)
             assert restored.tracks[0].status == status
 
+    def test_mode_and_new_track_fields_roundtrip(self, tmp_path):
+        job = self._make_job(str(tmp_path))
+        job.mode = "compliant"
+        job.tracks[0].source = "jamendo"
+        job.tracks[0].purchase_links = {"bandcamp": "https://bandcamp.com/search?q=x"}
+
+        restored = Job.from_json(job.to_json())
+
+        assert restored.mode == "compliant"
+        assert restored.tracks[0].source == "jamendo"
+        assert restored.tracks[0].purchase_links == {"bandcamp": "https://bandcamp.com/search?q=x"}
+
+    def test_old_json_without_new_fields_deserializes(self, tmp_path):
+        """Job files written before compliant mode (no mode/source/purchase_links) still load."""
+        legacy = json.dumps({
+            "job_id": "abc12345",
+            "root_folder": str(tmp_path),
+            "organizing_schema": ["artist"],
+            "wildcard_value": None,
+            "tracks": [{"title": "Song", "artist": "Artist", "album": None, "status": "done"}],
+            "created_at": 1000.0,
+            "completed_at": None,
+        })
+
+        restored = Job.from_json(legacy)
+
+        assert restored.mode == "youtube"  # default preserves old behavior
+        assert restored.tracks[0].source is None
+        assert restored.tracks[0].purchase_links is None
+
     def test_save_is_atomic_temp_file_cleaned_up(self, tmp_path):
         job = self._make_job(str(tmp_path))
         job.save()
@@ -169,6 +199,16 @@ class TestFindResumableJob:
         result = find_resumable_job(str(tmp_path), playlist, ["artist"])
 
         assert result is None
+
+    def test_ignores_different_mode(self, tmp_path):
+        """A compliant re-run must not resume an older youtube job for the same playlist."""
+        playlist = [{"title": "Song", "artist": "Artist"}]
+        schema = ["artist"]
+        job = new_job(playlist, str(tmp_path), schema, None, mode="youtube")
+        job.save()
+
+        assert find_resumable_job(str(tmp_path), playlist, schema, mode="compliant") is None
+        assert find_resumable_job(str(tmp_path), playlist, schema, mode="youtube") is not None
 
     def test_returns_none_when_no_jobs_dir(self, tmp_path):
         playlist = [{"title": "Song", "artist": "Artist"}]

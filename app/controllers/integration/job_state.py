@@ -21,8 +21,9 @@ class TrackStatus(str, Enum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
     DONE = "done"
-    FAILED = "failed"
+    FAILED = "failed"  # An error prevented acquisition
     SKIPPED = "skipped"  # Already existed in library
+    UNAVAILABLE = "unavailable"  # No compliant source has it — see purchase_links
 
 
 @dataclass
@@ -35,6 +36,8 @@ class TrackJob:
     error: str | None = None
     started_at: float | None = None
     completed_at: float | None = None
+    source: str | None = None  # provider that acquired it (e.g. "youtube", "jamendo")
+    purchase_links: dict | None = None  # buy-links when status == UNAVAILABLE
 
 
 @dataclass
@@ -46,6 +49,7 @@ class Job:
     tracks: list[TrackJob]
     created_at: float = field(default_factory=time.time)
     completed_at: float | None = None
+    mode: str = "youtube"  # acquisition mode: "youtube" | "compliant"
 
     def to_json(self) -> str:
         d = asdict(self)
@@ -112,6 +116,7 @@ def new_job(
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None,
+    mode: str = "youtube",
 ) -> Job:
     tracks = [
         TrackJob(
@@ -127,6 +132,7 @@ def new_job(
         organizing_schema=organizing_schema,
         wildcard_value=wildcard_value,
         tracks=tracks,
+        mode=mode,
     )
     return job
 
@@ -135,10 +141,12 @@ def find_resumable_job(
     root_folder: str,
     playlist: list[dict[str, Any]],
     organizing_schema: list[str],
+    mode: str = "youtube",
 ) -> Job | None:
     """
     Find an unfinished job for the same playlist in root_folder.
-    Matches by track list (title+artist) and organizing_schema.
+    Matches by track list (title+artist), organizing_schema, and mode
+    (so a compliant re-run does not resume an older youtube job).
     Returns the most recent match, or None.
     """
     jobs_dir = os.path.join(root_folder, ".music_library_jobs")
@@ -158,6 +166,8 @@ def find_resumable_job(
         if job.completed_at is not None:
             continue  # Already finished
         if job.organizing_schema != organizing_schema:
+            continue
+        if job.mode != mode:
             continue
         job_keys = {(t.title, t.artist) for t in job.tracks}
         if job_keys == playlist_keys:
