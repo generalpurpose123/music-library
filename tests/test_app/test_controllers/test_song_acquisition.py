@@ -269,9 +269,13 @@ class TestDownloadAudioFromYoutube:
         mock_ydl = MagicMock()
         mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"title": "My Video", "ext": "webm"}
-        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "My Video.webm")
+        mock_ydl.extract_info.return_value = {
+            "title": "My Video",
+            "ext": "webm",
+            "requested_downloads": [{"filepath": expected_mp3}],
+        }
         mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
 
         result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
 
@@ -283,18 +287,74 @@ class TestDownloadAudioFromYoutube:
         mock_ydl = MagicMock()
         mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {}
-        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "custom_name.webm")
+        expected_mp3 = os.path.join(output_dir, "custom_name.mp3")
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": expected_mp3}],
+        }
         mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
 
         result = download_audio_from_youtube(
             "https://youtube.com/watch?v=abc", output_dir, output_filename="custom_name"
         )
 
-        assert result == os.path.join(output_dir, "custom_name.mp3")
+        assert result == expected_mp3
         # Check outtmpl contains custom_name
         ydl_opts_used = mock_ydl_cls.call_args[0][0]
         assert "custom_name" in ydl_opts_used["outtmpl"]
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_missing_output_file_raises_download_error(self, mock_ydl_cls, tmp_path):
+        output_dir = str(tmp_path)
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": os.path.join(output_dir, "ghost.mp3")}],
+        }
+        mock_ydl_cls.return_value = mock_ydl
+
+        with pytest.raises(DownloadError, match="No output file"):
+            download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_requested_downloads_filepath_preferred_over_prepare_filename(
+        self, mock_ydl_cls, tmp_path
+    ):
+        output_dir = str(tmp_path)
+        real_mp3 = os.path.join(output_dir, "Actual Title.mp3")
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": real_mp3}],
+        }
+        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "Guessed.webm")
+        mock_ydl_cls.return_value = mock_ydl
+        open(real_mp3, "wb").close()
+
+        result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+        assert result == real_mp3
+        mock_ydl.prepare_filename.assert_not_called()
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_fallback_to_prepare_filename_without_requested_downloads(
+        self, mock_ydl_cls, tmp_path
+    ):
+        output_dir = str(tmp_path)
+        expected_mp3 = os.path.join(output_dir, "My Video.mp3")
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"title": "My Video", "ext": "webm"}
+        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "My Video.webm")
+        mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
+
+        result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+        assert result == expected_mp3
 
     def test_missing_output_directory_raises_file_not_found(self, tmp_path):
         nonexistent_dir = str(tmp_path / "does_not_exist")
