@@ -132,7 +132,7 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        assert result.path == mp3_path
         mock_attach.assert_called_once()
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
@@ -164,7 +164,7 @@ class TestGetCheckEnhanceSong:
             max_retry=3,
         )
 
-        assert result == mp3_right
+        assert result.path == mp3_right
         assert not os.path.isfile(mp3_wrong)  # Wrong file was deleted
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -214,7 +214,7 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_good
+        assert result.path == mp3_good
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
     def test_no_youtube_results_raises_download_error(self, mock_search, tmp_path):
@@ -253,7 +253,155 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_b
+        assert result.path == mp3_b
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_remaster_suffix_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): Spotify remaster decoration must not fail verification."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "The Weeknd",
+            "song_name": "Blinding Lights",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="The Weeknd",
+            song_name="Blinding Lights - Remastered 2020",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.path == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_feat_decoration_in_title_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): '(feat. X)' in the requested title must not fail verification."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Macklemore & Ryan Lewis",
+            "song_name": "Thrift Shop",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="Macklemore & Ryan Lewis",
+            song_name="Thrift Shop (feat. Wanz)",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.path == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_first_artist_of_collab_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): first artist only vs Shazam's full multi-artist credit."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Macklemore & Ryan Lewis Feat. Wanz",
+            "song_name": "Thrift Shop",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="Macklemore",
+            song_name="Thrift Shop",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.path == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_clearly_wrong_track_still_rejected(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Loosened matching must still delete downloads of the wrong song."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Queen",
+            "song_name": "Another One Bites the Dust",
+        }
+
+        with pytest.raises(DownloadError):
+            get_check_enhance_song(
+                artist_name="Queen",
+                song_name="Bohemian Rhapsody",
+                output_directory=str(tmp_path),
+            )
+        assert not os.path.isfile(mp3_path)
+        mock_attach.assert_not_called()
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_metadata_returned_alongside_path(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B5): callers reuse the verification metadata instead of re-recognizing."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        metadata = {
+            "artist_name": "Queen",
+            "song_name": "Bohemian Rhapsody",
+            "album_name": "A Night at the Opera",
+        }
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = metadata
+
+        result = get_check_enhance_song(
+            artist_name="Queen",
+            song_name="Bohemian Rhapsody",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.metadata == metadata
+        assert result.tag_error is None
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_attach_failure_sets_tag_error_and_keeps_file(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """A tagging failure is reported, not swallowed; the file is still kept."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {"artist_name": "Queen", "song_name": "Bohemian Rhapsody"}
+        mock_attach.side_effect = Exception("corrupt ID3 header")
+
+        result = get_check_enhance_song(
+            artist_name="Queen",
+            song_name="Bohemian Rhapsody",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.path == mp3_path
+        assert result.tag_error == "corrupt ID3 header"
+        assert os.path.isfile(mp3_path)
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +417,13 @@ class TestDownloadAudioFromYoutube:
         mock_ydl = MagicMock()
         mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"title": "My Video", "ext": "webm"}
-        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "My Video.webm")
+        mock_ydl.extract_info.return_value = {
+            "title": "My Video",
+            "ext": "webm",
+            "requested_downloads": [{"filepath": expected_mp3}],
+        }
         mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
 
         result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
 
@@ -283,18 +435,74 @@ class TestDownloadAudioFromYoutube:
         mock_ydl = MagicMock()
         mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {}
-        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "custom_name.webm")
+        expected_mp3 = os.path.join(output_dir, "custom_name.mp3")
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": expected_mp3}],
+        }
         mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
 
         result = download_audio_from_youtube(
             "https://youtube.com/watch?v=abc", output_dir, output_filename="custom_name"
         )
 
-        assert result == os.path.join(output_dir, "custom_name.mp3")
+        assert result == expected_mp3
         # Check outtmpl contains custom_name
         ydl_opts_used = mock_ydl_cls.call_args[0][0]
         assert "custom_name" in ydl_opts_used["outtmpl"]
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_missing_output_file_raises_download_error(self, mock_ydl_cls, tmp_path):
+        output_dir = str(tmp_path)
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": os.path.join(output_dir, "ghost.mp3")}],
+        }
+        mock_ydl_cls.return_value = mock_ydl
+
+        with pytest.raises(DownloadError, match="No output file"):
+            download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_requested_downloads_filepath_preferred_over_prepare_filename(
+        self, mock_ydl_cls, tmp_path
+    ):
+        output_dir = str(tmp_path)
+        real_mp3 = os.path.join(output_dir, "Actual Title.mp3")
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "requested_downloads": [{"filepath": real_mp3}],
+        }
+        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "Guessed.webm")
+        mock_ydl_cls.return_value = mock_ydl
+        open(real_mp3, "wb").close()
+
+        result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+        assert result == real_mp3
+        mock_ydl.prepare_filename.assert_not_called()
+
+    @patch("app.controllers.song_aquisition.youtube.yt_dlp_downloader.yt_dlp.YoutubeDL")
+    def test_fallback_to_prepare_filename_without_requested_downloads(
+        self, mock_ydl_cls, tmp_path
+    ):
+        output_dir = str(tmp_path)
+        expected_mp3 = os.path.join(output_dir, "My Video.mp3")
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"title": "My Video", "ext": "webm"}
+        mock_ydl.prepare_filename.return_value = os.path.join(output_dir, "My Video.webm")
+        mock_ydl_cls.return_value = mock_ydl
+        open(expected_mp3, "wb").close()
+
+        result = download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+        assert result == expected_mp3
 
     def test_missing_output_directory_raises_file_not_found(self, tmp_path):
         nonexistent_dir = str(tmp_path / "does_not_exist")

@@ -46,9 +46,13 @@ env.bak/
 venv.bak/
 
 # ── Credentials / secrets ─────────────────────────────────────────────────────
-app/config/local_config.py
+# local_config.py only reads env vars — the actual secrets live in .env
+# (.env.example is tracked; the negation below keeps it visible)
 .env
 .env.*
+!.env.example
+# spotipy token caches (e.g. app/examples/.cache)
+.cache
 *.secret
 secrets.toml
 
@@ -77,3 +81,5 @@ desktop.ini
 *.log
 tmp/
 temp/
+.venv2/
+.serena/

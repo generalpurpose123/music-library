@@ -2,6 +2,7 @@ import os
 
 import yt_dlp
 
+from app.models.exceptions import DownloadError
 from app.tools.make_logger import simple_logger
 
 logger = simple_logger(__name__)
@@ -52,12 +53,19 @@ def download_audio_from_youtube(
         logger.debug(f"Starting download for URL: {youtube_url}")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=True)
-            downloaded_filename = ydl.prepare_filename(info)
+            # yt-dlp reports the post-processed path itself; only fall back to
+            # guessing from the pre-processing filename if it is absent.
+            requested = info.get("requested_downloads") or []
+            final_filename = requested[0].get("filepath") if requested else None
+            if not final_filename:
+                base, _ = os.path.splitext(ydl.prepare_filename(info))
+                final_filename = f"{base}.mp3"
 
-        # yt-dlp may produce an output file without .mp3 if postprocessor fails.
-        # Typically, it's .mp3. We'll guess the final name:
-        base, _ = os.path.splitext(downloaded_filename)
-        final_filename = f"{base}.mp3"
+        if not os.path.isfile(final_filename):
+            raise DownloadError(
+                f"No output file at '{final_filename}' after download "
+                "(ffmpeg postprocessing may have failed)."
+            )
 
         logger.info(f"Successfully downloaded audio to {final_filename}")
         return final_filename

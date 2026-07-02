@@ -1,10 +1,11 @@
 import os
 import asyncio
-from difflib import SequenceMatcher
+from typing import Any, NamedTuple
 
 import yt_dlp
 
 from app.tools.make_logger import simple_logger
+from app.tools.track_matching import artists_match, titles_match
 from app.controllers.song_aquisition.youtube.yt_dlp_downloader import download_audio_from_youtube
 from app.controllers.song_recognition.get_metadata import gather_song_info
 from app.controllers.song_file_controller.metadata_attacher import attach_id3_metadata
@@ -13,8 +14,11 @@ from app.models.exceptions import DownloadError
 logger = simple_logger(__name__)
 
 
-def _similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+class SongDownloadResult(NamedTuple):
+    """A verified download: file path, Shazam metadata, optional tagging error."""
+    path: str
+    metadata: dict[str, Any]
+    tag_error: str | None = None
 
 
 def search_youtube_via_yt_dlp(
@@ -70,7 +74,7 @@ def get_check_enhance_song(
     output_directory: str,
     output_filename: str | None = None,
     max_retry: int = 3
-) -> str | None:
+) -> SongDownloadResult:
     """
     Search YouTube for the given artist and song using yt-dlp (no API key), download as MP3, verify metadata via Shazam,
     and if correct, attach ID3 tags.
@@ -87,7 +91,8 @@ def get_check_enhance_song(
     :param output_directory: Where to store the downloaded MP3.
     :param output_filename: Optional desired base filename (sans extension). If not given, a name is auto-generated.
     :param max_retry: How many different search results to try before giving up.
-    :return: The path to the successfully recognized and tagged MP3 file, or None if unsuccessful.
+    :return: SongDownloadResult with the file path, the Shazam metadata used for
+        verification, and tag_error set if ID3 tagging failed.
     :raises DownloadError: If all retry attempts are exhausted without a successful match.
     """
     # 1) Search YouTube (via yt-dlp search)
@@ -126,18 +131,19 @@ def get_check_enhance_song(
         recognized_artist = metadata.get("artist_name", "")
         recognized_title = metadata.get("song_name", "")
 
-        # Fuzzy match rather than substring containment: a threshold of 0.75 tolerates minor
-        # title variations (remaster suffixes, punctuation differences) while still rejecting
-        # clearly wrong tracks.
-        if _similarity(artist_name, recognized_artist) >= 0.75 and _similarity(song_name, recognized_title) >= 0.75:
+        # Decoration-aware matching: "(feat. X)" / "- Remastered 2020" noise and
+        # multi-artist credits are tolerated, remix/live variants are not.
+        if artists_match(artist_name, recognized_artist) and titles_match(song_name, recognized_title):
             # 4) Attach ID3 metadata.
             logger.info("Song recognized correctly. Attaching ID3 metadata...")
+            tag_error = None
             try:
                 attach_id3_metadata(downloaded_path, metadata)
             except Exception as e:
+                tag_error = str(e)
                 logger.error(f"Failed to attach ID3 metadata: {e}")
             logger.info("Success! Returning final path.")
-            return downloaded_path
+            return SongDownloadResult(downloaded_path, metadata, tag_error)
         else:
             logger.warning(
                 f"Recognized mismatch. Wanted: '{artist_name} - {song_name}', "

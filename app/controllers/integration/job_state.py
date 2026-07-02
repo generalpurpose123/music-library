@@ -168,11 +168,21 @@ def find_resumable_job(
     return max(candidates, key=lambda j: j.created_at)
 
 
-def cleanup_orphaned_temp_dirs(root_folder: str) -> None:
-    """Remove download_tmp_* directories left by crashed previous runs."""
+def cleanup_orphaned_temp_dirs(root_folder: str, max_age_hours: float = 24.0) -> None:
+    """
+    Remove download_tmp_* directories left by crashed previous runs.
+
+    Only directories older than max_age_hours are removed: the temp dir is
+    shared machine-wide, so a fresh download_tmp_* may belong to another
+    job that is still running (the library lock only serializes one root).
+    """
     parent = tempfile.gettempdir()
+    cutoff = time.time() - max_age_hours * 3600
     for name in os.listdir(parent):
         if name.startswith("download_tmp_"):
             full = os.path.join(parent, name)
-            if os.path.isdir(full):
-                shutil.rmtree(full, ignore_errors=True)
+            try:
+                if os.path.isdir(full) and os.stat(full).st_mtime < cutoff:
+                    shutil.rmtree(full, ignore_errors=True)
+            except OSError:
+                continue

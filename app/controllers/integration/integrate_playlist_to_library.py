@@ -1,4 +1,3 @@
-import asyncio
 import os
 import re
 import shutil
@@ -7,8 +6,10 @@ import time
 from typing import Any
 
 from app.tools.make_logger import simple_logger
-from app.controllers.song_recognition.get_metadata import gather_song_info
-from app.controllers.song_aquisition.get_check_enhance_song import get_check_enhance_song
+from app.controllers.song_aquisition.get_check_enhance_song import (
+    SongDownloadResult,
+    get_check_enhance_song,
+)
 from app.models.exceptions import DownloadError, LibraryError
 
 logger = simple_logger(__name__)
@@ -93,19 +94,26 @@ def _try_move_existing(
     library_files: list | None = None,
 ) -> bool:
     """
-    Use deep duplicate detection (ID3 tags + fuzzy matching) to find this track
-    anywhere in root_folder. If found at a different path, move it to
-    correct_mp3_path and return True. Returns False if no existing copy is found.
+    Use deep duplicate detection (ID3 tags) to find this track anywhere in
+    root_folder. Only a normalized-exact match may be moved to
+    correct_mp3_path; a fuzzy-only match is logged and left in place so the
+    wrong file is never relocated automatically. Returns True if a file was moved.
 
     Pass library_files to reuse a previously scanned snapshot (avoids O(N*M) scans
     when processing an entire playlist — call scan_library() once and pass the result).
+    A successful move updates the snapshot in place so later lookups see the new path.
     """
     from app.controllers.integration.duplicate_detector import scan_library, find_existing_in_library
 
     if library_files is None:
         library_files = scan_library(root_folder)
-    match = find_existing_in_library(title, artist, library_files)
+    match = find_existing_in_library(title, artist, library_files, exact_only=True)
     if match is None:
+        fuzzy = find_existing_in_library(title, artist, library_files)
+        if fuzzy is not None:
+            logger.info(
+                f"Possible duplicate of '{artist} - {title}' at '{fuzzy.path}' — left in place"
+            )
         return False
     if match.path == correct_mp3_path:
         # Already in the right place; the caller's isfile() check will catch this
@@ -116,6 +124,8 @@ def _try_move_existing(
         shutil.move(match.path, correct_mp3_path)
     except OSError as exc:
         raise LibraryError(f"Failed to move file to '{correct_mp3_path}'") from exc
+    library_files.remove(match)
+    library_files.append(match._replace(path=correct_mp3_path))
     return True
 
 
@@ -126,62 +136,61 @@ def _download_single_track(
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None,
-) -> str | None:
+    album: str | None = None,
+) -> SongDownloadResult | None:
     """
-    Download one track into a temp directory, move it to correct_mp3_path, run
-    metadata recognition, and relocate to the album-aware final path if needed.
-    Returns the final file path on success, None if the downloader yields nothing.
+    Download one track into a temp directory and move it to correct_mp3_path.
+    When the playlist did not provide an album, the file is relocated to a
+    path built from the Shazam-recognized album instead (metadata reused from
+    download verification — no second recognition pass).
+    Returns a SongDownloadResult with the final path, None if nothing was downloaded.
     """
     # Normalise multi-artist fields the same way the rest of the module does
     download_artist = artist.split(",", 1)[0].strip() if artist and "," in artist else artist
 
     temp_dir = tempfile.mkdtemp(prefix="download_tmp_")
     try:
-        result_path = get_check_enhance_song(
+        result = get_check_enhance_song(
             artist_name=download_artist,
             song_name=title,
             output_directory=temp_dir,
             output_filename=None,
             max_retry=3,
         )
-        if not result_path:
+        if not result:
             return None
 
         try:
             os.makedirs(os.path.dirname(correct_mp3_path), exist_ok=True)
-            shutil.move(result_path, correct_mp3_path)
+            shutil.move(result.path, correct_mp3_path)
         except OSError as exc:
             raise LibraryError(f"Failed to place downloaded file at '{correct_mp3_path}'") from exc
 
-        # asyncio.run() cannot be called inside an already-running event loop.
-        # Using new_event_loop + run_until_complete is safe in a sync context
-        # and avoids RuntimeError if called from threaded or partially-async code.
-        loop = asyncio.new_event_loop()
-        try:
-            recognized_metadata = loop.run_until_complete(gather_song_info(correct_mp3_path))
-        finally:
-            loop.close()
+        if album is not None:
+            # The playlist supplied the album, so correct_mp3_path was already
+            # built album-aware — expected path == final path, no relocation.
+            final_path = correct_mp3_path
+        else:
+            shazam_album = result.metadata.get("album_name", "Unknown Album")
+            new_path_no_ext = build_path(
+                root_folder,
+                organizing_schema,
+                title,
+                artist,
+                album=shazam_album,
+                wildcard_value=wildcard_value,
+            )
+            new_mp3_path = new_path_no_ext + ".mp3"
+            if new_mp3_path != correct_mp3_path:
+                try:
+                    os.makedirs(os.path.dirname(new_mp3_path), exist_ok=True)
+                    shutil.move(correct_mp3_path, new_mp3_path)
+                except OSError as exc:
+                    raise LibraryError(f"Failed to move file to final path '{new_mp3_path}'") from exc
 
-        album = recognized_metadata.get("album_name", "Unknown Album")
-        new_path_no_ext = build_path(
-            root_folder,
-            organizing_schema,
-            title,
-            artist,
-            album=album,
-            wildcard_value=wildcard_value,
-        )
-        new_mp3_path = new_path_no_ext + ".mp3"
-        if new_mp3_path != correct_mp3_path:
-            try:
-                os.makedirs(os.path.dirname(new_mp3_path), exist_ok=True)
-                shutil.move(correct_mp3_path, new_mp3_path)
-            except OSError as exc:
-                raise LibraryError(f"Failed to move file to final path '{new_mp3_path}'") from exc
-
-        final_path = new_mp3_path if os.path.isfile(new_mp3_path) else correct_mp3_path
+            final_path = new_mp3_path if os.path.isfile(new_mp3_path) else correct_mp3_path
         logger.info(f"Saved to library at {final_path}")
-        return final_path
+        return result._replace(path=final_path)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -270,7 +279,8 @@ def download_missing_songs(
             logger.info(f"Downloading missing track: {artist} - {title}")
             try:
                 result = _download_single_track(
-                    artist, title, correct_mp3_path, root_folder, organizing_schema, wildcard_value
+                    artist, title, correct_mp3_path, root_folder, organizing_schema, wildcard_value,
+                    album=album,
                 )
                 if not result:
                     logger.warning(f"Failed to download track: {artist} - {title}")
@@ -298,9 +308,11 @@ def integrate_playlist(
         Job,
     )
 
-    cleanup_orphaned_temp_dirs(root_folder)
-
     with LibraryLock(root_folder):
+        # Inside the lock so a second invocation cannot wipe temp dirs while
+        # another run on the same root is still downloading into them.
+        cleanup_orphaned_temp_dirs(root_folder)
+
         job = find_resumable_job(root_folder, playlist, organizing_schema) if resume else None
         if job:
             done_count = sum(1 for t in job.tracks if t.status == TrackStatus.DONE)
@@ -344,9 +356,17 @@ def integrate_playlist(
                 job.save()
                 continue
 
-            # Try to find and move existing misplaced file using fuzzy duplicate detection.
+            # Try to find and move an existing misplaced file using duplicate detection.
             # Pass the cached library snapshot to avoid re-scanning for every track.
-            moved = _try_move_existing(track_job.title, track_job.artist, correct_mp3_path, root_folder, library_snapshot)
+            # A failed move must not abort the rest of the playlist.
+            try:
+                moved = _try_move_existing(track_job.title, track_job.artist, correct_mp3_path, root_folder, library_snapshot)
+            except (LibraryError, OSError) as exc:
+                track_job.status = TrackStatus.FAILED
+                track_job.error = f"move failed: {exc}"
+                logger.error(f"Track {track_job.artist} - {track_job.title} move failed: {exc}")
+                job.save()
+                continue
             if moved:
                 track_job.status = TrackStatus.SKIPPED
                 track_job.target_path = correct_mp3_path
@@ -359,18 +379,21 @@ def integrate_playlist(
             job.save()
 
             try:
-                result_path = _download_single_track(
+                result = _download_single_track(
                     track_job.artist,
                     track_job.title,
                     correct_mp3_path,
                     root_folder,
                     organizing_schema,
                     wildcard_value,
+                    album=track_job.album,
                 )
-                if result_path:
+                if result:
                     track_job.status = TrackStatus.DONE
-                    track_job.target_path = result_path
+                    track_job.target_path = result.path
                     track_job.completed_at = time.time()
+                    if result.tag_error:
+                        track_job.error = f"warning: ID3 tagging failed: {result.tag_error}"
                 else:
                     track_job.status = TrackStatus.FAILED
                     track_job.error = "Download returned no file"

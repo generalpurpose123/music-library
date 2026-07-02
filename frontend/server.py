@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv, set_key
-from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -65,8 +65,8 @@ def _recent_jobs(root: str, limit: int = 10) -> list[dict[str, Any]]:
     if not jobs_dir or not os.path.isdir(jobs_dir):
         return []
     from app.controllers.integration.job_state import Job
-    result = []
-    for fname in sorted(os.listdir(jobs_dir), reverse=True):
+    entries: list[tuple[float, dict[str, Any]]] = []
+    for fname in os.listdir(jobs_dir):
         if not fname.endswith(".json"):
             continue
         try:
@@ -75,7 +75,7 @@ def _recent_jobs(root: str, limit: int = 10) -> list[dict[str, Any]]:
             total = len(job.tracks)
             done = sum(1 for t in job.tracks if t.status.value in ("done", "skipped"))
             failed = sum(1 for t in job.tracks if t.status.value == "failed")
-            result.append({
+            entries.append((job.created_at or 0.0, {
                 "job_id": job.job_id,
                 "schema": " / ".join(job.organizing_schema),
                 "tracks": total,
@@ -85,12 +85,12 @@ def _recent_jobs(root: str, limit: int = 10) -> list[dict[str, Any]]:
                 "created_at": time.strftime(
                     "%Y-%m-%d %H:%M", time.localtime(job.created_at)
                 ),
-            })
+            }))
         except Exception:
             continue
-        if len(result) >= limit:
-            break
-    return result
+    # Job filenames are random UUIDs — sort by creation time, newest first.
+    entries.sort(key=lambda e: e[0], reverse=True)
+    return [row for _, row in entries[:limit]]
 
 
 def _load_job(root_folder: str, job_id: str):
@@ -98,16 +98,6 @@ def _load_job(root_folder: str, job_id: str):
     job_file = os.path.join(root_folder, ".music_library_jobs", f"{job_id}.json")
     with open(job_file) as f:
         return Job.from_json(f.read())
-
-
-def _patch_spotify_env() -> None:
-    """Reload Spotify credentials from env into the already-imported config module."""
-    try:
-        import app.config.local_config as cfg
-        cfg.SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
-        cfg.SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +194,9 @@ def _run_single_download(
             output_filename=None,
             max_retry=3,
         )
-        if result:
-            log_q.put(f"SUCCESS: Downloaded to {result}")
-        else:
-            log_q.put("WARNING: Download completed but no file was saved (Shazam recognition may have failed)")
+        if result.tag_error:
+            log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
+        log_q.put(f"SUCCESS: Downloaded to {result.path}")
     except Exception as exc:
         log_q.put(f"ERROR: {exc}")
     finally:
@@ -224,8 +213,7 @@ async def index(request: Request):
     root = _library_root()
     mp3_count = await asyncio.get_running_loop().run_in_executor(_executor, _count_mp3s, root)
     recent = await asyncio.get_running_loop().run_in_executor(_executor, _recent_jobs, root)
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "library_root": root,
         "mp3_count": mp3_count,
         "recent_jobs": recent,
@@ -234,19 +222,19 @@ async def index(request: Request):
 
 @app.get("/sync", response_class=HTMLResponse)
 async def sync_page(request: Request):
-    return templates.TemplateResponse("sync.html", {"request": request})
+    return templates.TemplateResponse(request, "sync.html")
 
 
 @app.get("/browse", response_class=HTMLResponse)
 async def browse_page(request: Request):
     root = _library_root()
-    return templates.TemplateResponse("browse.html", {"request": request, "library_root": root})
+    return templates.TemplateResponse(request, "browse.html", {"library_root": root})
 
 
 @app.get("/download", response_class=HTMLResponse)
 async def download_page(request: Request):
     root = _library_root()
-    return templates.TemplateResponse("download.html", {"request": request, "library_root": root})
+    return templates.TemplateResponse(request, "download.html", {"library_root": root})
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -254,8 +242,7 @@ async def settings_page(request: Request):
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
     root = _library_root()
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
         "library_root": root,
@@ -273,7 +260,6 @@ async def sync_fetch(
     schema: str = Form("artist/album"),
     wildcard: str = Form(""),
 ):
-    _patch_spotify_env()
     from app.controllers.playlist_aquisition.get_spotify_playlist import get_spotify_playlist
 
     try:
@@ -288,7 +274,8 @@ async def sync_fetch(
 
     schema_list = [s.strip() for s in schema.split("/") if s.strip()]
     rows_html = "\n".join(
-        f"<tr><td>{i+1}</td><td>{t.get('title','')}</td><td>{t.get('artist','')}</td></tr>"
+        f"<tr><td>{i+1}</td><td>{t.get('title','')}</td><td>{t.get('artist','')}</td>"
+        f"<td>{t.get('album') or ''}</td></tr>"
         for i, t in enumerate(tracks)
     )
 
@@ -301,7 +288,7 @@ async def sync_fetch(
   <p class="success">{len(tracks)} tracks found.</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>#</th><th>Title</th><th>Artist</th></tr></thead>
+      <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
       <tbody>{rows_html}</tbody>
     </table>
   </div>
@@ -317,7 +304,6 @@ async def sync_fetch(
 
 @app.post("/sync/start")
 async def sync_start(
-    background_tasks: BackgroundTasks,
     playlist_json: str = Form(...),
     schema_json: str = Form(...),
     wildcard: str = Form(""),
@@ -331,16 +317,7 @@ async def sync_start(
     schema = json.loads(schema_json)
     job_id = str(uuid.uuid4())[:8]
 
-    background_tasks.add_task(
-        asyncio.get_event_loop().run_in_executor,
-        _executor,
-        _run_integration,
-        job_id,
-        playlist,
-        root,
-        schema,
-        wildcard or None,
-    )
+    _executor.submit(_run_integration, job_id, playlist, root, schema, wildcard or None)
 
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -348,8 +325,7 @@ async def sync_start(
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def job_page(request: Request, job_id: str):
     root = _library_root()
-    return templates.TemplateResponse("job.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "job.html", {
         "job_id": job_id,
         "root_folder": root,
     })
@@ -398,6 +374,8 @@ async def stream_job(job_id: str):
             yield {"data": json.dumps(payload)}
 
             if job_data.get("done"):
+                # Job finished and this stream delivered it — release the queue.
+                _log_queues.pop(job_id, None)
                 break
             await asyncio.sleep(1.0)
 
@@ -471,7 +449,6 @@ function filterBrowseTable(q) {{
 
 @app.post("/download/start")
 async def download_start(
-    background_tasks: BackgroundTasks,
     artist: str = Form(...),
     song: str = Form(...),
     output_folder: str = Form(...),
@@ -479,23 +456,14 @@ async def download_start(
     import uuid
     job_id = str(uuid.uuid4())[:8]
 
-    background_tasks.add_task(
-        asyncio.get_event_loop().run_in_executor,
-        _executor,
-        _run_single_download,
-        job_id,
-        artist,
-        song,
-        output_folder,
-    )
+    _executor.submit(_run_single_download, job_id, artist, song, output_folder)
 
     return RedirectResponse(url=f"/download/progress/{job_id}", status_code=303)
 
 
 @app.get("/download/progress/{job_id}", response_class=HTMLResponse)
 async def download_progress_page(request: Request, job_id: str):
-    return templates.TemplateResponse("download_progress.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "download_progress.html", {
         "job_id": job_id,
     })
 
@@ -523,7 +491,9 @@ async def stream_download(job_id: str):
             seen = len(accumulated)
             if new_lines or done:
                 yield {"data": json.dumps({"lines": new_lines, "done": done})}
-            if not done:
+            if done:
+                _log_queues.pop(job_id, None)
+            else:
                 await asyncio.sleep(0.5)
 
     return EventSourceResponse(event_gen())
@@ -552,14 +522,12 @@ async def settings_save(
         set_key(env_path, "MUSIC_LIBRARY_ROOT", library_root.strip())
         os.environ["MUSIC_LIBRARY_ROOT"] = library_root.strip()
 
-    _patch_spotify_env()
 
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
     root = _library_root()
 
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
         "library_root": root,
