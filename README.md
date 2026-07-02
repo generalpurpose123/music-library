@@ -107,7 +107,7 @@ This tool is intended for **personal, non-commercial use only**, to help organis
 
 Be aware of what using this tool involves:
 
-- **YouTube:** downloading content is against the YouTube Terms of Service unless YouTube provides an explicit download feature for it. Whether a personal copy is additionally a copyright issue depends on your jurisdiction (e.g. private-copy exceptions in parts of the EU); this is legally unsettled territory.
+- **YouTube:** downloading content is against the YouTube Terms of Service unless YouTube provides an explicit download feature for it. Whether a personal copy is additionally a copyright issue depends on your jurisdiction. In Germany, courts have held — final since 2025 (OLG Hamburg 5 U 54/23; BGH review rejected) — that YouTube's stream obfuscation ("rolling cipher") is an effective technical protection measure under §95a UrhG, and that circumventing it (which yt-dlp-style tools do) is not covered by the §53 private-copy exception.
 - **Spotify:** only public playlist metadata (title/artist/album) is read via the official Web API, but using that metadata to source audio elsewhere may conflict with the Spotify Developer Policy. The realistic consequence is revocation of your API credentials.
 - **Shazam:** recognition uses an unofficial API via `shazamio`; heavy use may get rate-limited or blocked.
 
