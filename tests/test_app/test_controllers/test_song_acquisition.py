@@ -132,7 +132,7 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        assert result.path == mp3_path
         mock_attach.assert_called_once()
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
@@ -164,7 +164,7 @@ class TestGetCheckEnhanceSong:
             max_retry=3,
         )
 
-        assert result == mp3_right
+        assert result.path == mp3_right
         assert not os.path.isfile(mp3_wrong)  # Wrong file was deleted
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -214,7 +214,7 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_good
+        assert result.path == mp3_good
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
     def test_no_youtube_results_raises_download_error(self, mock_search, tmp_path):
@@ -253,7 +253,7 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_b
+        assert result.path == mp3_b
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -277,7 +277,7 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        assert result.path == mp3_path
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -301,7 +301,7 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        assert result.path == mp3_path
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -325,7 +325,7 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        assert result.path == mp3_path
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -351,6 +351,57 @@ class TestGetCheckEnhanceSong:
             )
         assert not os.path.isfile(mp3_path)
         mock_attach.assert_not_called()
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_metadata_returned_alongside_path(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B5): callers reuse the verification metadata instead of re-recognizing."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        metadata = {
+            "artist_name": "Queen",
+            "song_name": "Bohemian Rhapsody",
+            "album_name": "A Night at the Opera",
+        }
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = metadata
+
+        result = get_check_enhance_song(
+            artist_name="Queen",
+            song_name="Bohemian Rhapsody",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.metadata == metadata
+        assert result.tag_error is None
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_attach_failure_sets_tag_error_and_keeps_file(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """A tagging failure is reported, not swallowed; the file is still kept."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {"artist_name": "Queen", "song_name": "Bohemian Rhapsody"}
+        mock_attach.side_effect = Exception("corrupt ID3 header")
+
+        result = get_check_enhance_song(
+            artist_name="Queen",
+            song_name="Bohemian Rhapsody",
+            output_directory=str(tmp_path),
+        )
+
+        assert result.path == mp3_path
+        assert result.tag_error == "corrupt ID3 header"
+        assert os.path.isfile(mp3_path)
 
 
 # ---------------------------------------------------------------------------

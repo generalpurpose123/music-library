@@ -1,5 +1,6 @@
 import os
 import asyncio
+from typing import Any, NamedTuple
 
 import yt_dlp
 
@@ -11,6 +12,13 @@ from app.controllers.song_file_controller.metadata_attacher import attach_id3_me
 from app.models.exceptions import DownloadError
 
 logger = simple_logger(__name__)
+
+
+class SongDownloadResult(NamedTuple):
+    """A verified download: file path, Shazam metadata, optional tagging error."""
+    path: str
+    metadata: dict[str, Any]
+    tag_error: str | None = None
 
 
 def search_youtube_via_yt_dlp(
@@ -66,7 +74,7 @@ def get_check_enhance_song(
     output_directory: str,
     output_filename: str | None = None,
     max_retry: int = 3
-) -> str | None:
+) -> SongDownloadResult:
     """
     Search YouTube for the given artist and song using yt-dlp (no API key), download as MP3, verify metadata via Shazam,
     and if correct, attach ID3 tags.
@@ -83,7 +91,8 @@ def get_check_enhance_song(
     :param output_directory: Where to store the downloaded MP3.
     :param output_filename: Optional desired base filename (sans extension). If not given, a name is auto-generated.
     :param max_retry: How many different search results to try before giving up.
-    :return: The path to the successfully recognized and tagged MP3 file, or None if unsuccessful.
+    :return: SongDownloadResult with the file path, the Shazam metadata used for
+        verification, and tag_error set if ID3 tagging failed.
     :raises DownloadError: If all retry attempts are exhausted without a successful match.
     """
     # 1) Search YouTube (via yt-dlp search)
@@ -127,12 +136,14 @@ def get_check_enhance_song(
         if artists_match(artist_name, recognized_artist) and titles_match(song_name, recognized_title):
             # 4) Attach ID3 metadata.
             logger.info("Song recognized correctly. Attaching ID3 metadata...")
+            tag_error = None
             try:
                 attach_id3_metadata(downloaded_path, metadata)
             except Exception as e:
+                tag_error = str(e)
                 logger.error(f"Failed to attach ID3 metadata: {e}")
             logger.info("Success! Returning final path.")
-            return downloaded_path
+            return SongDownloadResult(downloaded_path, metadata, tag_error)
         else:
             logger.warning(
                 f"Recognized mismatch. Wanted: '{artist_name} - {song_name}', "

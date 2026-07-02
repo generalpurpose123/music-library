@@ -24,6 +24,7 @@ from app.controllers.integration.integrate_playlist_to_library import (
     integrate_playlist,
     download_missing_songs,
 )
+from app.controllers.song_aquisition.get_check_enhance_song import SongDownloadResult
 from app.models.exceptions import LibraryError
 
 
@@ -289,9 +290,8 @@ class TestIntegratePlaylist:
         return mp3_path
 
     @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
-    @patch("app.controllers.integration.integrate_playlist_to_library.gather_song_info")
     @patch("app.controllers.song_aquisition.get_check_enhance_song.get_check_enhance_song")
-    def test_all_tracks_present_no_downloads(self, mock_get_song, mock_gather, mock_disk, tmp_path):
+    def test_all_tracks_present_no_downloads(self, mock_get_song, mock_disk, tmp_path):
         root = str(tmp_path)
         schema = ["artist", "album"]
         tracks = [
@@ -325,15 +325,12 @@ class TestIntegratePlaylist:
         with open(downloaded_file, "wb") as f:
             f.write(b"\xff\xfb\x90\x00" * 4)
 
-        loop_mock = MagicMock()
-        loop_mock.run_until_complete.return_value = {"album_name": "Unknown Album"}
-
-        # get_check_enhance_song is imported lazily inside download_missing_songs;
-        # patch it at the source module level.
         with patch(
             "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
-        ) as mock_get_song, patch("asyncio.new_event_loop", return_value=loop_mock):
-            mock_get_song.return_value = downloaded_file
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Unknown Album"}
+            )
             integrate_playlist(tracks, root, schema)
 
             # Should have been called exactly once for the missing track
@@ -361,15 +358,12 @@ class TestIntegratePlaylist:
             call_count["n"] += 1
             if kwargs.get("song_name") == "Fail Song":
                 return None  # Simulate failed download (returns None, not exception)
-            return downloaded_file
-
-        loop_mock = MagicMock()
-        loop_mock.run_until_complete.return_value = {"album_name": "Unknown Album"}
+            return SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"})
 
         with patch(
             "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
             side_effect=side_effect,
-        ), patch("asyncio.new_event_loop", return_value=loop_mock):
+        ):
             # Should not raise even when first track download returns None
             integrate_playlist(tracks, root, schema)
 
@@ -394,16 +388,39 @@ class TestIntegratePlaylist:
         with open(downloaded_file, "wb") as f:
             f.write(b"\xff\xfb\x90\x00" * 4)
 
-        loop_mock = MagicMock()
-        loop_mock.run_until_complete.return_value = {"album_name": "Unknown Album"}
-
         with patch(
             "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
-        ) as mock_get_song, patch("asyncio.new_event_loop", return_value=loop_mock):
-            mock_get_song.return_value = downloaded_file
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Unknown Album"}
+            )
             download_missing_songs([track], root, schema)
 
         # Verify first artist was used
         assert mock_get_song.called
         call_kwargs = mock_get_song.call_args[1]
         assert call_kwargs.get("artist_name") == "Artist A"
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_shazam_recognition_runs_once_per_track(self, mock_disk, tmp_path):
+        """Regression (B5): integration must reuse the download's metadata, never re-recognize."""
+        root = str(tmp_path)
+        schema = ["artist", "album"]
+        tracks = [{"title": "Missing Song", "artist": "Artist B", "album": None}]
+        mock_disk.return_value = None
+
+        downloaded_file = os.path.join(str(tmp_path), "downloaded.mp3")
+        with open(downloaded_file, "wb") as f:
+            f.write(b"\xff\xfb\x90\x00" * 4)
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song, patch(
+            "app.controllers.song_recognition.get_metadata.gather_song_info"
+        ) as mock_gather:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Some Album"}
+            )
+            integrate_playlist(tracks, root, schema)
+
+        mock_gather.assert_not_called()

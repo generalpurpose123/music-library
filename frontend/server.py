@@ -204,10 +204,9 @@ def _run_single_download(
             output_filename=None,
             max_retry=3,
         )
-        if result:
-            log_q.put(f"SUCCESS: Downloaded to {result}")
-        else:
-            log_q.put("WARNING: Download completed but no file was saved (Shazam recognition may have failed)")
+        if result.tag_error:
+            log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
+        log_q.put(f"SUCCESS: Downloaded to {result.path}")
     except Exception as exc:
         log_q.put(f"ERROR: {exc}")
     finally:
