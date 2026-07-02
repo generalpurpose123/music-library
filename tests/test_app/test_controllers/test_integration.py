@@ -590,3 +590,29 @@ class TestSafeLibraryMoves:
 
         assert os.path.isfile(typo_file)  # near-miss untouched
         assert mock_get_song.call_count == 1  # download happened instead
+
+
+class TestCleanupLockOrdering:
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_cleanup_runs_after_lock_acquired(self, mock_disk, tmp_path):
+        """Regression (B6): temp cleanup must not run before the library lock is held."""
+        from app.controllers.integration import job_state
+
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        order = []
+
+        original_enter = job_state.LibraryLock.__enter__
+
+        def tracking_enter(self):
+            order.append("lock")
+            return original_enter(self)
+
+        with patch.object(job_state.LibraryLock, "__enter__", tracking_enter), patch(
+            "app.controllers.integration.job_state.cleanup_orphaned_temp_dirs",
+            side_effect=lambda *a, **k: order.append("cleanup"),
+        ):
+            integrate_playlist([], root, ["artist"])
+
+        assert order == ["lock", "cleanup"]

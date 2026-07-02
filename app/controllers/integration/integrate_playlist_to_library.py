@@ -308,9 +308,11 @@ def integrate_playlist(
         Job,
     )
 
-    cleanup_orphaned_temp_dirs(root_folder)
-
     with LibraryLock(root_folder):
+        # Inside the lock so a second invocation cannot wipe temp dirs while
+        # another run on the same root is still downloading into them.
+        cleanup_orphaned_temp_dirs(root_folder)
+
         job = find_resumable_job(root_folder, playlist, organizing_schema) if resume else None
         if job:
             done_count = sum(1 for t in job.tracks if t.status == TrackStatus.DONE)

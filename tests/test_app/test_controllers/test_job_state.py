@@ -246,22 +246,41 @@ class TestLibraryLock:
 # ---------------------------------------------------------------------------
 
 class TestCleanupOrphanedTempDirs:
-    def test_removes_download_tmp_directories(self, tmp_path):
+    def _backdate(self, path, hours=48):
+        old = time.time() - hours * 3600
+        os.utime(path, (old, old))
+
+    def test_removes_old_download_tmp_directories(self, tmp_path):
         # Create fake download_tmp_ dirs in the system temp dir
         tmp_dir = tempfile.gettempdir()
         orphan1 = tempfile.mkdtemp(prefix="download_tmp_", dir=tmp_dir)
         orphan2 = tempfile.mkdtemp(prefix="download_tmp_", dir=tmp_dir)
         # Put a file in one
         open(os.path.join(orphan1, "partial.mp3"), "w").close()
+        self._backdate(orphan1)
+        self._backdate(orphan2)
 
         cleanup_orphaned_temp_dirs(str(tmp_path))
 
         assert not os.path.isdir(orphan1)
         assert not os.path.isdir(orphan2)
 
+    def test_fresh_temp_dirs_left_alone(self, tmp_path):
+        """Regression (B6): a fresh temp dir may belong to a running job — keep it."""
+        tmp_dir = tempfile.gettempdir()
+        fresh = tempfile.mkdtemp(prefix="download_tmp_", dir=tmp_dir)
+        try:
+            cleanup_orphaned_temp_dirs(str(tmp_path))
+            assert os.path.isdir(fresh)
+        finally:
+            if os.path.isdir(fresh):
+                import shutil
+                shutil.rmtree(fresh, ignore_errors=True)
+
     def test_leaves_other_temp_dirs_alone(self, tmp_path):
         tmp_dir = tempfile.gettempdir()
         safe_dir = tempfile.mkdtemp(prefix="music_library_safe_", dir=tmp_dir)
+        self._backdate(safe_dir)  # old, but wrong prefix — must survive
         try:
             cleanup_orphaned_temp_dirs(str(tmp_path))
             assert os.path.isdir(safe_dir)
