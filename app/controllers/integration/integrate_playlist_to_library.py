@@ -6,10 +6,8 @@ import time
 from typing import Any
 
 from app.tools.make_logger import simple_logger
-from app.controllers.song_aquisition.get_check_enhance_song import (
-    SongDownloadResult,
-    get_check_enhance_song,
-)
+from app.controllers.song_aquisition.providers import SongDownloadResult
+from app.controllers.song_aquisition.providers.registry import acquire_track
 from app.models.exceptions import DownloadError, LibraryError
 
 logger = simple_logger(__name__)
@@ -137,28 +135,30 @@ def _download_single_track(
     organizing_schema: list[str],
     wildcard_value: str | None,
     album: str | None = None,
-) -> SongDownloadResult | None:
+    mode: str = "youtube",
+) -> tuple[SongDownloadResult | None, str | None]:
     """
-    Download one track into a temp directory and move it to correct_mp3_path.
-    When the playlist did not provide an album, the file is relocated to a
-    path built from the Shazam-recognized album instead (metadata reused from
-    download verification — no second recognition pass).
-    Returns a SongDownloadResult with the final path, None if nothing was downloaded.
+    Acquire one track (via the mode's provider chain) into a temp directory and
+    move it to correct_mp3_path. When the playlist did not provide an album, the
+    file is relocated to a path built from the source-recognized album instead
+    (metadata reused from acquisition — no second recognition pass).
+    Returns (SongDownloadResult with the final path, source name), or (None, None)
+    if no provider had the track.
     """
     # Normalise multi-artist fields the same way the rest of the module does
     download_artist = artist.split(",", 1)[0].strip() if artist and "," in artist else artist
 
     temp_dir = tempfile.mkdtemp(prefix="download_tmp_")
     try:
-        result = get_check_enhance_song(
-            artist_name=download_artist,
-            song_name=title,
-            output_directory=temp_dir,
-            output_filename=None,
-            max_retry=3,
+        result, source = acquire_track(
+            download_artist,
+            title,
+            album,
+            temp_dir,
+            mode=mode,
         )
         if not result:
-            return None
+            return None, None
 
         try:
             os.makedirs(os.path.dirname(correct_mp3_path), exist_ok=True)
@@ -171,13 +171,13 @@ def _download_single_track(
             # built album-aware — expected path == final path, no relocation.
             final_path = correct_mp3_path
         else:
-            shazam_album = result.metadata.get("album_name", "Unknown Album")
+            source_album = result.metadata.get("album_name", "Unknown Album")
             new_path_no_ext = build_path(
                 root_folder,
                 organizing_schema,
                 title,
                 artist,
-                album=shazam_album,
+                album=source_album,
                 wildcard_value=wildcard_value,
             )
             new_mp3_path = new_path_no_ext + ".mp3"
@@ -190,7 +190,7 @@ def _download_single_track(
 
             final_path = new_mp3_path if os.path.isfile(new_mp3_path) else correct_mp3_path
         logger.info(f"Saved to library at {final_path}")
-        return result._replace(path=final_path)
+        return result._replace(path=final_path), source
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -253,7 +253,8 @@ def download_missing_songs(
     playlist: list[dict[str, Any]],
     root_folder: str,
     organizing_schema: list[str],
-    wildcard_value: str | None = None
+    wildcard_value: str | None = None,
+    mode: str = "youtube",
 ) -> None:
     _check_disk_space(root_folder)
 
@@ -278,9 +279,9 @@ def download_missing_songs(
         if not os.path.isfile(correct_mp3_path):
             logger.info(f"Downloading missing track: {artist} - {title}")
             try:
-                result = _download_single_track(
+                result, _source = _download_single_track(
                     artist, title, correct_mp3_path, root_folder, organizing_schema, wildcard_value,
-                    album=album,
+                    album=album, mode=mode,
                 )
                 if not result:
                     logger.warning(f"Failed to download track: {artist} - {title}")
@@ -292,12 +293,35 @@ def download_missing_songs(
 # Primary entry point — job-aware with crash recovery
 # ---------------------------------------------------------------------------
 
+def _record_unacquired(track_job, mode: str) -> None:
+    """
+    Mark a track no provider could acquire. In youtube mode that is a failure;
+    in compliant mode the track is UNAVAILABLE (nothing on the free/CC sources)
+    and gets purchase links so the owner can buy it. Purchase-link generation
+    lives in build_purchase_links (Phase D).
+    """
+    from app.controllers.integration.job_state import TrackStatus
+
+    if mode == "compliant":
+        track_job.status = TrackStatus.UNAVAILABLE
+        track_job.error = "Not available on any compliant source — see purchase links"
+        try:
+            from app.controllers.integration.purchase_links import build_purchase_links
+            track_job.purchase_links = build_purchase_links(track_job.artist, track_job.title)
+        except ImportError:
+            track_job.purchase_links = None
+    else:
+        track_job.status = TrackStatus.FAILED
+        track_job.error = "Download returned no file"
+
+
 def integrate_playlist(
     playlist: list[dict[str, Any]],
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None = None,
     resume: bool = True,
+    mode: str = "youtube",
 ) -> "Job":  # noqa: F821 — type alias; Job imported locally to avoid circular imports
     from app.controllers.integration.job_state import (
         new_job,
@@ -313,13 +337,13 @@ def integrate_playlist(
         # another run on the same root is still downloading into them.
         cleanup_orphaned_temp_dirs(root_folder)
 
-        job = find_resumable_job(root_folder, playlist, organizing_schema) if resume else None
+        job = find_resumable_job(root_folder, playlist, organizing_schema, mode) if resume else None
         if job:
             done_count = sum(1 for t in job.tracks if t.status == TrackStatus.DONE)
             logger.info(f"Resuming job {job.job_id} ({done_count} tracks already done)")
         else:
-            job = new_job(playlist, root_folder, organizing_schema, wildcard_value)
-            logger.info(f"Starting new job {job.job_id} ({len(job.tracks)} tracks)")
+            job = new_job(playlist, root_folder, organizing_schema, wildcard_value, mode=mode)
+            logger.info(f"Starting new {mode} job {job.job_id} ({len(job.tracks)} tracks)")
         job.save()
 
         # Scan the library once so every _try_move_existing call reuses the snapshot.
@@ -379,7 +403,7 @@ def integrate_playlist(
             job.save()
 
             try:
-                result = _download_single_track(
+                result, source = _download_single_track(
                     track_job.artist,
                     track_job.title,
                     correct_mp3_path,
@@ -387,16 +411,17 @@ def integrate_playlist(
                     organizing_schema,
                     wildcard_value,
                     album=track_job.album,
+                    mode=mode,
                 )
                 if result:
                     track_job.status = TrackStatus.DONE
                     track_job.target_path = result.path
+                    track_job.source = source
                     track_job.completed_at = time.time()
                     if result.tag_error:
                         track_job.error = f"warning: ID3 tagging failed: {result.tag_error}"
                 else:
-                    track_job.status = TrackStatus.FAILED
-                    track_job.error = "Download returned no file"
+                    _record_unacquired(track_job, mode)
             except Exception as exc:
                 track_job.status = TrackStatus.FAILED
                 track_job.error = str(exc)
@@ -410,7 +435,9 @@ def integrate_playlist(
         done = sum(1 for t in job.tracks if t.status == TrackStatus.DONE)
         skipped = sum(1 for t in job.tracks if t.status == TrackStatus.SKIPPED)
         failed = sum(1 for t in job.tracks if t.status == TrackStatus.FAILED)
+        unavailable = sum(1 for t in job.tracks if t.status == TrackStatus.UNAVAILABLE)
         logger.info(
-            f"Job {job.job_id} complete: {done} downloaded, {skipped} already present, {failed} failed"
+            f"Job {job.job_id} complete: {done} acquired, {skipped} already present, "
+            f"{failed} failed, {unavailable} unavailable"
         )
         return job

@@ -17,6 +17,20 @@
   </div>
 
   <div class="form-group">
+    <label for="mode">Acquisition mode</label>
+    <select id="mode" name="mode">
+      <option value="compliant">Compliant — legal sources only (Jamendo / Internet Archive)</option>
+      <option value="youtube">YouTube — download via yt-dlp</option>
+    </select>
+    <p class="notice" style="margin-top:.4rem">
+      Compliant mode only auto-downloads free/Creative-Commons tracks. Mainstream
+      commercial tracks are not on these sources and are added to a purchase list
+      instead of being downloaded. YouTube mode may breach YouTube's Terms of Service
+      (and, in some countries, copyright law) — see the README's Legal Notice.
+    </p>
+  </div>
+
+  <div class="form-group">
     <label for="schema">Organising schema</label>
     <select id="schema" name="schema" onchange="toggleWildcard(this.value)">
       <option value="artist/album">artist / album</option>

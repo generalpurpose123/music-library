@@ -59,11 +59,28 @@ class TestBackgroundScheduling:
             playlist_json=json.dumps([{"title": "T", "artist": "A", "album": None}]),
             schema_json=json.dumps(["artist"]),
             wildcard="",
+            mode="compliant",
         )
 
         assert response.status_code == 303
         executor.submit.assert_called_once()
         assert executor.submit.call_args.args[0] is server._run_integration
+        # mode is the last positional arg passed to _run_integration
+        assert executor.submit.call_args.args[-1] == "compliant"
+
+    async def test_sync_start_rejects_invalid_mode(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MUSIC_LIBRARY_ROOT", str(tmp_path))
+        executor = MagicMock()
+        monkeypatch.setattr(server, "_executor", executor)
+
+        await server.sync_start(
+            playlist_json=json.dumps([{"title": "T", "artist": "A", "album": None}]),
+            schema_json=json.dumps(["artist"]),
+            wildcard="",
+            mode="evil",
+        )
+
+        assert executor.submit.call_args.args[-1] == "compliant"  # falls back to default
 
     async def test_download_start_submits_to_executor(self, monkeypatch, tmp_path):
         executor = MagicMock()

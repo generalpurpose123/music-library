@@ -292,7 +292,7 @@ class TestIntegratePlaylist:
         return mp3_path
 
     @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
-    @patch("app.controllers.song_aquisition.get_check_enhance_song.get_check_enhance_song")
+    @patch("app.controllers.integration.integrate_playlist_to_library.acquire_track")
     def test_all_tracks_present_no_downloads(self, mock_get_song, mock_disk, tmp_path):
         root = str(tmp_path)
         schema = ["artist", "album"]
@@ -328,17 +328,15 @@ class TestIntegratePlaylist:
             f.write(b"\xff\xfb\x90\x00" * 4)
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Unknown Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
 
             # Should have been called exactly once for the missing track
             mock_get_song.assert_called_once()
-            call_kwargs = mock_get_song.call_args
-            assert call_kwargs[1]["song_name"] == "Missing Song"
+            # acquire_track(artist, title, album, output_dir, mode=...) — positional
+            assert mock_get_song.call_args.args[1] == "Missing Song"
 
     @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
     def test_download_fails_integration_continues(self, mock_disk, tmp_path):
@@ -356,14 +354,14 @@ class TestIntegratePlaylist:
 
         call_count = {"n": 0}
 
-        def side_effect(**kwargs):
+        def side_effect(artist, title, album, output_dir, mode="youtube", output_filename=None):
             call_count["n"] += 1
-            if kwargs.get("song_name") == "Fail Song":
-                return None  # Simulate failed download (returns None, not exception)
-            return SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"})
+            if title == "Fail Song":
+                return None, None  # Simulate a miss (no exception)
+            return SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"}), "youtube"
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
             side_effect=side_effect,
         ):
             # Should not raise even when first track download returns None
@@ -391,17 +389,14 @@ class TestIntegratePlaylist:
             f.write(b"\xff\xfb\x90\x00" * 4)
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song",
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Unknown Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"}), "youtube")
             download_missing_songs([track], root, schema)
 
-        # Verify first artist was used
+        # Verify first artist was used (acquire_track(artist, title, ...) positional)
         assert mock_get_song.called
-        call_kwargs = mock_get_song.call_args[1]
-        assert call_kwargs.get("artist_name") == "Artist A"
+        assert mock_get_song.call_args.args[0] == "Artist A"
 
     @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
     def test_shazam_recognition_runs_once_per_track(self, mock_disk, tmp_path):
@@ -416,13 +411,11 @@ class TestIntegratePlaylist:
             f.write(b"\xff\xfb\x90\x00" * 4)
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song, patch(
             "app.controllers.song_recognition.get_metadata.gather_song_info"
         ) as mock_gather:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Some Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Some Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
 
         mock_gather.assert_not_called()
@@ -446,11 +439,9 @@ class TestAlbumPathStability:
 
         downloaded_file = self._downloaded_file(tmp_path)
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Different Shazam Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Different Shazam Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
 
         expected = build_path(root, schema, "Song", "Artist", album="Album X") + ".mp3"
@@ -467,11 +458,9 @@ class TestAlbumPathStability:
         mock_disk.return_value = None
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                self._downloaded_file(tmp_path), {"album_name": "Shazam Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(self._downloaded_file(tmp_path), {"album_name": "Shazam Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
             assert mock_get_song.call_count == 1
 
@@ -488,11 +477,9 @@ class TestAlbumPathStability:
 
         downloaded_file = self._downloaded_file(tmp_path)
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Shazam Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Shazam Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
 
         expected = build_path(root, schema, "Song", "Artist", album="Shazam Album") + ".mp3"
@@ -532,14 +519,12 @@ class TestSafeLibraryMoves:
             return real_move(src, dst, *args, **kwargs)
 
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song, patch(
             "app.controllers.integration.integrate_playlist_to_library.shutil.move",
             side_effect=failing_move,
         ):
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Unknown Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"}), "youtube")
             job = integrate_playlist(tracks, root, schema)
 
         statuses = {t.title: t.status.value for t in job.tracks}
@@ -581,11 +566,9 @@ class TestSafeLibraryMoves:
 
         downloaded_file = self._make_file(str(tmp_path), "dl.mp3")
         with patch(
-            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
         ) as mock_get_song:
-            mock_get_song.return_value = SongDownloadResult(
-                downloaded_file, {"album_name": "Unknown Album"}
-            )
+            mock_get_song.return_value = (SongDownloadResult(downloaded_file, {"album_name": "Unknown Album"}), "youtube")
             integrate_playlist(tracks, root, schema)
 
         assert os.path.isfile(typo_file)  # near-miss untouched
@@ -616,3 +599,74 @@ class TestCleanupLockOrdering:
             integrate_playlist([], root, ["artist"])
 
         assert order == ["lock", "cleanup"]
+
+
+class TestAcquisitionModes:
+    """Phase B: mode threading, source recording, and miss handling per mode."""
+
+    def _downloaded(self, tmp_path, name="dl.mp3"):
+        p = tmp_path / name
+        p.write_bytes(b"\xff\xfb\x90\x00" * 4)
+        return str(p)
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_source_recorded_on_success(self, mock_disk, tmp_path):
+        root = str(tmp_path / "lib")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        tracks = [{"title": "Song", "artist": "Artist", "album": None}]
+        dl = self._downloaded(tmp_path)
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track"
+        ) as mock_acq:
+            mock_acq.return_value = (SongDownloadResult(dl, {"album_name": "A"}), "jamendo")
+            job = integrate_playlist(tracks, root, ["artist"], mode="compliant")
+
+        assert job.tracks[0].status.value == "done"
+        assert job.tracks[0].source == "jamendo"
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_compliant_miss_is_unavailable_not_failed(self, mock_disk, tmp_path):
+        root = str(tmp_path / "lib")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        tracks = [{"title": "Song", "artist": "Artist", "album": None}]
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
+            return_value=(None, None),
+        ):
+            job = integrate_playlist(tracks, root, ["artist"], mode="compliant")
+
+        assert job.tracks[0].status.value == "unavailable"
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_youtube_miss_is_failed(self, mock_disk, tmp_path):
+        root = str(tmp_path / "lib")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        tracks = [{"title": "Song", "artist": "Artist", "album": None}]
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
+            return_value=(None, None),
+        ):
+            job = integrate_playlist(tracks, root, ["artist"], mode="youtube")
+
+        assert job.tracks[0].status.value == "failed"
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_mode_passed_to_acquire_track(self, mock_disk, tmp_path):
+        root = str(tmp_path / "lib")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        tracks = [{"title": "Song", "artist": "Artist", "album": None}]
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
+            return_value=(None, None),
+        ) as mock_acq:
+            integrate_playlist(tracks, root, ["artist"], mode="compliant")
+
+        assert mock_acq.call_args.kwargs["mode"] == "compliant"

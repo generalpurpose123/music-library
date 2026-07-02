@@ -122,6 +122,7 @@ def _run_integration(
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None,
+    mode: str = "youtube",
 ) -> None:
     """Run in a thread pool thread. Writes job state to disk; SSE picks it up."""
     from app.controllers.integration.integrate_playlist_to_library import integrate_playlist
@@ -135,7 +136,7 @@ def _run_integration(
     root_logger.addHandler(handler)
 
     try:
-        job = new_job(playlist, root_folder, organizing_schema, wildcard_value)
+        job = new_job(playlist, root_folder, organizing_schema, wildcard_value, mode=mode)
         # Override the generated job_id with the one we already handed to the client
         job.job_id = job_id
         job.save()
@@ -145,6 +146,7 @@ def _run_integration(
             root_folder=root_folder,
             organizing_schema=organizing_schema,
             wildcard_value=wildcard_value,
+            mode=mode,
         )
 
         # Mark all pending/downloading tracks as done in the job file so SSE can close
@@ -175,9 +177,10 @@ def _run_single_download(
     artist: str,
     song: str,
     output_folder: str,
+    mode: str = "youtube",
 ) -> None:
     """Run single song download in a thread. Streams logs via queue."""
-    from app.controllers.song_aquisition.get_check_enhance_song import get_check_enhance_song
+    from app.controllers.song_aquisition.providers.registry import acquire_track
 
     log_q = _log_queues.setdefault(job_id, queue.Queue())
     root_logger = logging.getLogger()
@@ -187,16 +190,21 @@ def _run_single_download(
 
     try:
         os.makedirs(output_folder, exist_ok=True)
-        result = get_check_enhance_song(
-            artist_name=artist,
-            song_name=song,
-            output_directory=output_folder,
-            output_filename=None,
-            max_retry=3,
+        result, source = acquire_track(
+            artist, song, None, output_folder, mode=mode,
         )
-        if result.tag_error:
-            log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
-        log_q.put(f"SUCCESS: Downloaded to {result.path}")
+        if result is None:
+            if mode == "compliant":
+                log_q.put(
+                    "UNAVAILABLE: Not found on any compliant source. Try YouTube mode "
+                    "or buy the track (Bandcamp / Qobuz / Apple / Amazon)."
+                )
+            else:
+                log_q.put("ERROR: No matching track could be downloaded.")
+        else:
+            if result.tag_error:
+                log_q.put(f"WARNING: ID3 tagging failed: {result.tag_error}")
+            log_q.put(f"SUCCESS: Downloaded to {result.path} (source: {source})")
     except Exception as exc:
         log_q.put(f"ERROR: {exc}")
     finally:
@@ -259,8 +267,11 @@ async def sync_fetch(
     playlist_url: str = Form(...),
     schema: str = Form("artist/album"),
     wildcard: str = Form(""),
+    mode: str = Form("compliant"),
 ):
     from app.controllers.playlist_aquisition.get_spotify_playlist import get_spotify_playlist
+
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
 
     try:
         tracks = await asyncio.get_running_loop().run_in_executor(
@@ -282,10 +293,11 @@ async def sync_fetch(
     tracks_json = json.dumps(tracks)
     schema_json = json.dumps(schema_list)
     wildcard_safe = wildcard.replace('"', "&quot;")
+    mode_label = "Compliant (Jamendo / Internet Archive + buy-list)" if mode == "compliant" else "YouTube"
 
     return HTMLResponse(f"""
 <div id="fetch-result">
-  <p class="success">{len(tracks)} tracks found.</p>
+  <p class="success">{len(tracks)} tracks found. Acquisition mode: <strong>{mode_label}</strong>.</p>
   <div class="table-wrap">
     <table>
       <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
@@ -296,6 +308,7 @@ async def sync_fetch(
     <input type="hidden" name="playlist_json" value="{tracks_json.replace('"', '&quot;')}">
     <input type="hidden" name="schema_json" value="{schema_json.replace('"', '&quot;')}">
     <input type="hidden" name="wildcard" value="{wildcard_safe}">
+    <input type="hidden" name="mode" value="{mode}">
     <button type="submit" class="btn-primary">Start Sync ({len(tracks)} tracks)</button>
   </form>
 </div>
@@ -307,6 +320,7 @@ async def sync_start(
     playlist_json: str = Form(...),
     schema_json: str = Form(...),
     wildcard: str = Form(""),
+    mode: str = Form("compliant"),
 ):
     import uuid
     root = _library_root()
@@ -315,9 +329,10 @@ async def sync_start(
 
     playlist = json.loads(playlist_json)
     schema = json.loads(schema_json)
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
     job_id = str(uuid.uuid4())[:8]
 
-    _executor.submit(_run_integration, job_id, playlist, root, schema, wildcard or None)
+    _executor.submit(_run_integration, job_id, playlist, root, schema, wildcard or None, mode)
 
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -452,11 +467,13 @@ async def download_start(
     artist: str = Form(...),
     song: str = Form(...),
     output_folder: str = Form(...),
+    mode: str = Form("compliant"),
 ):
     import uuid
+    mode = mode if mode in ("youtube", "compliant") else "compliant"
     job_id = str(uuid.uuid4())[:8]
 
-    _executor.submit(_run_single_download, job_id, artist, song, output_folder)
+    _executor.submit(_run_single_download, job_id, artist, song, output_folder, mode)
 
     return RedirectResponse(url=f"/download/progress/{job_id}", status_code=303)
 
