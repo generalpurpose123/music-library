@@ -255,6 +255,103 @@ class TestGetCheckEnhanceSong:
 
         assert result == mp3_b
 
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_remaster_suffix_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): Spotify remaster decoration must not fail verification."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "The Weeknd",
+            "song_name": "Blinding Lights",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="The Weeknd",
+            song_name="Blinding Lights - Remastered 2020",
+            output_directory=str(tmp_path),
+        )
+
+        assert result == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_feat_decoration_in_title_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): '(feat. X)' in the requested title must not fail verification."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Macklemore & Ryan Lewis",
+            "song_name": "Thrift Shop",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="Macklemore & Ryan Lewis",
+            song_name="Thrift Shop (feat. Wanz)",
+            output_directory=str(tmp_path),
+        )
+
+        assert result == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_first_artist_of_collab_accepted(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Regression (B1): first artist only vs Shazam's full multi-artist credit."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Macklemore & Ryan Lewis Feat. Wanz",
+            "song_name": "Thrift Shop",
+        }
+
+        result = get_check_enhance_song(
+            artist_name="Macklemore",
+            song_name="Thrift Shop",
+            output_directory=str(tmp_path),
+        )
+
+        assert result == mp3_path
+
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.download_audio_from_youtube")
+    @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
+    def test_clearly_wrong_track_still_rejected(
+        self, mock_search, mock_download, mock_run, mock_attach, tmp_path
+    ):
+        """Loosened matching must still delete downloads of the wrong song."""
+        mp3_path = self._make_dummy_mp3(tmp_path)
+        mock_search.return_value = ["https://youtube.com/watch?v=aaa"]
+        mock_download.return_value = mp3_path
+        mock_run.return_value = {
+            "artist_name": "Queen",
+            "song_name": "Another One Bites the Dust",
+        }
+
+        with pytest.raises(DownloadError):
+            get_check_enhance_song(
+                artist_name="Queen",
+                song_name="Bohemian Rhapsody",
+                output_directory=str(tmp_path),
+            )
+        assert not os.path.isfile(mp3_path)
+        mock_attach.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # download_audio_from_youtube
