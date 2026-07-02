@@ -65,6 +65,12 @@ class InternetArchiveProvider(AudioSourceProvider):
             meta = self._metadata(identifier)
             if not meta:
                 continue
+            # Compliance guard: archive.org accepts community uploads, some of
+            # which are infringing copies of commercial music. Only accept items
+            # that declare an open license (Creative Commons / public domain).
+            if not _as_text(meta.get("metadata", {}).get("licenseurl")):
+                logger.debug(f"Skipping IA item {identifier}: no declared open license")
+                continue
             picked = self._pick_audio_file(meta, artist, title)
             if not picked:
                 continue

@@ -54,6 +54,19 @@ class TestInternetArchiveProvider:
         assert InternetArchiveProvider().acquire("Live Band", "Free Song", None, str(tmp_path)) is None
 
     @patch("app.controllers.song_aquisition.providers.internet_archive.requests.get")
+    def test_item_without_license_is_skipped(self, mock_get, tmp_path):
+        """Compliance guard: a community upload with no declared license is not downloaded."""
+        docs = [{"identifier": "item1"}]
+        meta = {
+            # matches by title/artist but has NO licenseurl -> likely infringing upload
+            "metadata": {"creator": "Coldplay", "title": "Viva La Vida"},
+            "files": [{"name": "Viva La Vida.mp3", "title": "Viva La Vida", "artist": "Coldplay"}],
+        }
+        mock_get.side_effect = _fake_get(docs, meta)
+
+        assert InternetArchiveProvider().acquire("Coldplay", "Viva La Vida", None, str(tmp_path)) is None
+
+    @patch("app.controllers.song_aquisition.providers.internet_archive.requests.get")
     def test_no_audio_files_is_a_miss(self, mock_get, tmp_path):
         docs = [{"identifier": "item1"}]
         meta = {"metadata": {"creator": "Live Band"}, "files": [{"name": "cover.jpg"}]}
