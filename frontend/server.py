@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from typing import Any
 
 from dotenv import load_dotenv, set_key
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
@@ -355,6 +356,28 @@ async def job_page(request: Request, job_id: str):
         "job_id": job_id,
         "root_folder": root,
     })
+
+
+def _purchase_manifest_path(job_id: str, ext: str) -> str | None:
+    """Resolve a job's purchase manifest path, guarding against path traversal."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", job_id):
+        return None
+    root = _library_root()
+    if not root:
+        return None
+    path = os.path.join(root, ".music_library_jobs", f"{job_id}_purchase.{ext}")
+    return path if os.path.isfile(path) else None
+
+
+@app.get("/jobs/{job_id}/purchase.{ext}")
+async def job_purchase_manifest(job_id: str, ext: str):
+    if ext not in ("csv", "html"):
+        return HTMLResponse('<div class="error">Unknown manifest format.</div>', status_code=404)
+    path = _purchase_manifest_path(job_id, ext)
+    if not path:
+        return HTMLResponse('<div class="error">No purchase list for this job.</div>', status_code=404)
+    media = "text/html" if ext == "html" else "text/csv"
+    return FileResponse(path, media_type=media, filename=f"purchase_{job_id}.{ext}")
 
 
 @app.get("/jobs/{job_id}/stream")

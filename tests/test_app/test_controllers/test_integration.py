@@ -670,3 +670,24 @@ class TestAcquisitionModes:
             integrate_playlist(tracks, root, ["artist"], mode="compliant")
 
         assert mock_acq.call_args.kwargs["mode"] == "compliant"
+
+
+class TestPurchaseManifestIntegration:
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_compliant_miss_populates_links_and_manifest(self, mock_disk, tmp_path):
+        root = str(tmp_path / "lib")
+        os.makedirs(root)
+        mock_disk.return_value = None
+        tracks = [{"title": "Viva La Vida", "artist": "Coldplay", "album": None}]
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.acquire_track",
+            return_value=(None, None),
+        ):
+            job = integrate_playlist(tracks, root, ["artist"], mode="compliant")
+
+        t = job.tracks[0]
+        assert t.status.value == "unavailable"
+        assert t.purchase_links and "bandcamp" in t.purchase_links
+        manifest = os.path.join(root, ".music_library_jobs", f"{job.job_id}_purchase.csv")
+        assert os.path.isfile(manifest)

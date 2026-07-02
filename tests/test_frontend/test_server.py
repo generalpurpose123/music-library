@@ -129,3 +129,27 @@ class TestLogQueueCleanup:
 
         assert "line one" in body
         assert job_id not in server._log_queues
+
+
+class TestPurchaseManifestRoute:
+    def test_manifest_served_when_present(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MUSIC_LIBRARY_ROOT", str(tmp_path))
+        jobs_dir = tmp_path / ".music_library_jobs"
+        jobs_dir.mkdir()
+        (jobs_dir / "abcd1234_purchase.html").write_text("<html>buy me</html>")
+
+        client = TestClient(server.app)
+        resp = client.get("/jobs/abcd1234/purchase.html")
+        assert resp.status_code == 200
+        assert "buy me" in resp.text
+
+    def test_missing_manifest_404(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MUSIC_LIBRARY_ROOT", str(tmp_path))
+        client = TestClient(server.app)
+        assert client.get("/jobs/nope0000/purchase.html").status_code == 404
+
+    def test_path_traversal_rejected(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MUSIC_LIBRARY_ROOT", str(tmp_path))
+        client = TestClient(server.app)
+        # invalid job_id characters -> 404, never escapes the jobs dir
+        assert client.get("/jobs/..%2f..%2fetc/purchase.csv").status_code == 404

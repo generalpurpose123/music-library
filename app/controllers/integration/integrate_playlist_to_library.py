@@ -432,6 +432,15 @@ def integrate_playlist(
         job.completed_at = time.time()
         job.save()
 
+        # Export a purchase manifest for anything no compliant source could supply.
+        try:
+            from app.controllers.integration.purchase_links import write_purchase_manifest
+            manifest = write_purchase_manifest(job)
+            if manifest:
+                logger.info(f"Purchase list written to {manifest}")
+        except Exception as exc:
+            logger.warning(f"Failed to write purchase manifest: {exc}")
+
         done = sum(1 for t in job.tracks if t.status == TrackStatus.DONE)
         skipped = sum(1 for t in job.tracks if t.status == TrackStatus.SKIPPED)
         failed = sum(1 for t in job.tracks if t.status == TrackStatus.FAILED)
