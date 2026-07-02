@@ -78,6 +78,25 @@ class TestBackgroundScheduling:
         assert executor.submit.call_args.args[0] is server._run_single_download
 
 
+class TestPageRendering:
+    """Every page must render (regression: Starlette 1.0 TemplateResponse signature)."""
+
+    def test_all_pages_render(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MUSIC_LIBRARY_ROOT", str(tmp_path))
+        client = TestClient(server.app)
+        for path in (
+            "/",
+            "/sync",
+            "/browse",
+            "/download",
+            "/settings",
+            "/jobs/someid00",
+            "/download/progress/someid00",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, f"{path} -> {response.status_code}"
+
+
 class TestLogQueueCleanup:
     def test_log_queue_removed_after_download_stream_completes(self):
         """Regression (D): finished job queues must not accumulate forever."""
