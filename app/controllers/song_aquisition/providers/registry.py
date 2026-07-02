@@ -23,9 +23,21 @@ def _compliant_providers() -> list[AudioSourceProvider]:
     the purchase manifest — which is the honest result for commercial catalogs.
     """
     providers: list[AudioSourceProvider] = []
+    # Owned files first (prefer what the user already has over a fresh download),
+    # then free/CC download sources.
+    try:
+        from app.controllers.song_aquisition.providers.local_import import LocalImportProvider
+        providers.append(LocalImportProvider())
+    except ImportError:
+        pass
     try:
         from app.controllers.song_aquisition.providers.jamendo import JamendoProvider
         providers.append(JamendoProvider())
+    except ImportError:
+        pass
+    try:
+        from app.controllers.song_aquisition.providers.internet_archive import InternetArchiveProvider
+        providers.append(InternetArchiveProvider())
     except ImportError:
         pass
     return providers

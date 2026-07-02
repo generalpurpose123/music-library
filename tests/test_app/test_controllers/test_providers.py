@@ -77,8 +77,14 @@ class TestAcquireTrack:
         assert result is None
         assert source is None
 
-    def test_compliant_mode_with_no_providers_misses(self):
-        """Until Jamendo/IA land, compliant mode misses everything -> manifest."""
-        result, source = acquire_track("Queen", "Bohemian Rhapsody", None, "/tmp", mode=COMPLIANT_MODE)
+    def test_all_providers_miss_returns_none_none(self):
+        """When every provider in the chain misses, acquire_track reports a clean miss."""
+        with patch(
+            "app.controllers.song_aquisition.providers.registry.providers_for_mode",
+            return_value=[],
+        ):
+            result, source = acquire_track(
+                "Queen", "Bohemian Rhapsody", None, "/tmp", mode=COMPLIANT_MODE
+            )
         assert result is None
         assert source is None
