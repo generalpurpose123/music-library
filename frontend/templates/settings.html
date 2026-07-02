@@ -43,6 +43,26 @@
            autocomplete="off">
   </div>
 
+  <h2>Jamendo (compliant mode)</h2>
+  <p class="muted">
+    Enables downloading free/Creative-Commons tracks in compliant mode.
+    Register a free app at <code>devportal.jamendo.com</code>. Optional.
+  </p>
+
+  <div class="form-group">
+    <label for="jamendo_client_id">
+      Jamendo Client ID
+      {% if jamendo_client_id_set %}
+        <span class="badge badge-done">set</span>
+      {% else %}
+        <span class="badge badge-failed">not set</span>
+      {% endif %}
+    </label>
+    <input type="password" id="jamendo_client_id" name="jamendo_client_id"
+           placeholder="Leave blank to keep existing value"
+           autocomplete="off">
+  </div>
+
   <h2>Library</h2>
 
   <div class="form-group">

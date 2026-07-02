@@ -249,10 +249,12 @@ async def download_page(request: Request):
 async def settings_page(request: Request):
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
+    jamendo_client_id_set = bool(os.environ.get("JAMENDO_CLIENT_ID", "").strip())
     root = _library_root()
     return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
+        "jamendo_client_id_set": jamendo_client_id_set,
         "library_root": root,
     })
 
@@ -295,9 +297,18 @@ async def sync_fetch(
     wildcard_safe = wildcard.replace('"', "&quot;")
     mode_label = "Compliant (Jamendo / Internet Archive + buy-list)" if mode == "compliant" else "YouTube"
 
+    notice = ""
+    if mode == "compliant" and not os.environ.get("JAMENDO_CLIENT_ID", "").strip():
+        notice = (
+            '<p class="notice">No Jamendo API key set — compliant mode will only use '
+            'Internet Archive and the purchase list. Add a key on the Settings page to '
+            'enable Jamendo downloads.</p>'
+        )
+
     return HTMLResponse(f"""
 <div id="fetch-result">
   <p class="success">{len(tracks)} tracks found. Acquisition mode: <strong>{mode_label}</strong>.</p>
+  {notice}
   <div class="table-wrap">
     <table>
       <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
@@ -521,6 +532,7 @@ async def settings_save(
     request: Request,
     spotify_client_id: str = Form(""),
     spotify_client_secret: str = Form(""),
+    jamendo_client_id: str = Form(""),
     library_root: str = Form(""),
 ):
     env_path = str(_ENV_FILE)
@@ -535,18 +547,23 @@ async def settings_save(
         set_key(env_path, "SPOTIFY_CLIENT_SECRET", spotify_client_secret.strip())
         os.environ["SPOTIFY_CLIENT_SECRET"] = spotify_client_secret.strip()
 
+    if jamendo_client_id.strip():
+        set_key(env_path, "JAMENDO_CLIENT_ID", jamendo_client_id.strip())
+        os.environ["JAMENDO_CLIENT_ID"] = jamendo_client_id.strip()
+
     if library_root.strip():
         set_key(env_path, "MUSIC_LIBRARY_ROOT", library_root.strip())
         os.environ["MUSIC_LIBRARY_ROOT"] = library_root.strip()
 
-
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
+    jamendo_client_id_set = bool(os.environ.get("JAMENDO_CLIENT_ID", "").strip())
     root = _library_root()
 
     return templates.TemplateResponse(request, "settings.html", {
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
+        "jamendo_client_id_set": jamendo_client_id_set,
         "library_root": root,
         "saved": True,
     })
