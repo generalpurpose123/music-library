@@ -310,6 +310,24 @@ class TestAttachId3Metadata:
         tags = ID3(minimal_mp3)
         assert "TYER" not in tags and "TDRC" not in tags
 
+    def test_full_release_date_reduced_to_year(self, minimal_mp3):
+        """Regression (B10): Shazam release dates like '3 August 2015' must yield TYER=2015."""
+        metadata = self._minimal_metadata(optional_metadata={"year": "3 August 2015"})
+        attach_id3_metadata(minimal_mp3, metadata)
+
+        from mutagen.id3 import ID3
+        tags = ID3(minimal_mp3)
+        year_value = str(tags.get("TYER") or tags.get("TDRC"))
+        assert year_value == "2015"
+
+    def test_non_year_release_text_skips_frame(self, minimal_mp3):
+        metadata = self._minimal_metadata(optional_metadata={"year": "unknown"})
+        attach_id3_metadata(minimal_mp3, metadata)
+
+        from mutagen.id3 import ID3
+        tags = ID3(minimal_mp3)
+        assert "TYER" not in tags and "TDRC" not in tags
+
     def test_lyrics_attached_when_present(self, minimal_mp3):
         metadata = self._minimal_metadata(lyrics="Line 1\nLine 2")
         attach_id3_metadata(minimal_mp3, metadata)

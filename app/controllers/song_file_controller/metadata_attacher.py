@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from mutagen.id3 import (
@@ -77,7 +78,13 @@ def attach_id3_metadata(mp3_path: str, metadata: dict[str, Any]) -> None:
         optional_metadata = metadata.get("optional_metadata", {})
         year = optional_metadata.get("year")
         if year:
-            audio["TYER"] = TYER(encoding=3, text=year)
+            # Shazam's release field may be a full date ("3 August 2015");
+            # TYER is a 4-digit-year frame, so extract just the year.
+            year_match = re.search(r"\b(\d{4})\b", str(year))
+            if year_match:
+                audio["TYER"] = TYER(encoding=3, text=year_match.group(1))
+            else:
+                logger.warning(f"Skipping year frame; no 4-digit year in {year!r}")
 
         genre = optional_metadata.get("genre")
         if genre:
