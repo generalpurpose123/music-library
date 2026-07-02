@@ -127,11 +127,13 @@ def _download_single_track(
     root_folder: str,
     organizing_schema: list[str],
     wildcard_value: str | None,
+    album: str | None = None,
 ) -> SongDownloadResult | None:
     """
-    Download one track into a temp directory, move it to correct_mp3_path, and
-    relocate to the Shazam-album-aware final path if needed. Reuses the Shazam
-    metadata from download verification — no second recognition pass.
+    Download one track into a temp directory and move it to correct_mp3_path.
+    When the playlist did not provide an album, the file is relocated to a
+    path built from the Shazam-recognized album instead (metadata reused from
+    download verification — no second recognition pass).
     Returns a SongDownloadResult with the final path, None if nothing was downloaded.
     """
     # Normalise multi-artist fields the same way the rest of the module does
@@ -155,24 +157,29 @@ def _download_single_track(
         except OSError as exc:
             raise LibraryError(f"Failed to place downloaded file at '{correct_mp3_path}'") from exc
 
-        album = result.metadata.get("album_name", "Unknown Album")
-        new_path_no_ext = build_path(
-            root_folder,
-            organizing_schema,
-            title,
-            artist,
-            album=album,
-            wildcard_value=wildcard_value,
-        )
-        new_mp3_path = new_path_no_ext + ".mp3"
-        if new_mp3_path != correct_mp3_path:
-            try:
-                os.makedirs(os.path.dirname(new_mp3_path), exist_ok=True)
-                shutil.move(correct_mp3_path, new_mp3_path)
-            except OSError as exc:
-                raise LibraryError(f"Failed to move file to final path '{new_mp3_path}'") from exc
+        if album is not None:
+            # The playlist supplied the album, so correct_mp3_path was already
+            # built album-aware — expected path == final path, no relocation.
+            final_path = correct_mp3_path
+        else:
+            shazam_album = result.metadata.get("album_name", "Unknown Album")
+            new_path_no_ext = build_path(
+                root_folder,
+                organizing_schema,
+                title,
+                artist,
+                album=shazam_album,
+                wildcard_value=wildcard_value,
+            )
+            new_mp3_path = new_path_no_ext + ".mp3"
+            if new_mp3_path != correct_mp3_path:
+                try:
+                    os.makedirs(os.path.dirname(new_mp3_path), exist_ok=True)
+                    shutil.move(correct_mp3_path, new_mp3_path)
+                except OSError as exc:
+                    raise LibraryError(f"Failed to move file to final path '{new_mp3_path}'") from exc
 
-        final_path = new_mp3_path if os.path.isfile(new_mp3_path) else correct_mp3_path
+            final_path = new_mp3_path if os.path.isfile(new_mp3_path) else correct_mp3_path
         logger.info(f"Saved to library at {final_path}")
         return result._replace(path=final_path)
     finally:
@@ -263,7 +270,8 @@ def download_missing_songs(
             logger.info(f"Downloading missing track: {artist} - {title}")
             try:
                 result = _download_single_track(
-                    artist, title, correct_mp3_path, root_folder, organizing_schema, wildcard_value
+                    artist, title, correct_mp3_path, root_folder, organizing_schema, wildcard_value,
+                    album=album,
                 )
                 if not result:
                     logger.warning(f"Failed to download track: {artist} - {title}")
@@ -359,6 +367,7 @@ def integrate_playlist(
                     root_folder,
                     organizing_schema,
                     wildcard_value,
+                    album=track_job.album,
                 )
                 if result:
                     track_job.status = TrackStatus.DONE

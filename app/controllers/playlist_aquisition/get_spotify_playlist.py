@@ -27,15 +27,16 @@ def extract_playlist_id(playlist_url: str) -> str | None:
     return None
 
 
-def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
+def get_spotify_playlist(playlist_url: str) -> list[dict[str, str | None]]:
     """
-    Gather a list of songs (title and artist) from a Spotify playlist, given its URL.
+    Gather a list of songs (title, artist, album) from a Spotify playlist, given its URL.
 
     This version reads SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET from environment variables
     via app.config.local_config.
 
     :param playlist_url: The full URL of the Spotify playlist.
-    :return: A list of dictionaries with 'title' and 'artist' for each track.
+    :return: A list of dictionaries with 'title', 'artist' and 'album' (album may be None)
+        for each track.
     :raises CredentialsError: If Spotify credentials are missing.
     :raises PlaylistFetchError: If the playlist cannot be retrieved.
 
@@ -73,7 +74,7 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
                 playlist_id=playlist_id,
                 offset=offset,
                 limit=limit,
-                fields="items(track(name,artists(name))),next"
+                fields="items(track(name,artists(name),album(name))),next"
             )
 
             items = response.get("items", [])
@@ -85,11 +86,13 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
                 artists = track.get("artists", [])
                 # Join multiple artist names if necessary
                 artist_names = ", ".join([artist.get("name", "") for artist in artists])
+                album_name = (track.get("album") or {}).get("name") or None
 
                 if track_name and artist_names:
                     tracks_data.append({
                         "title": track_name,
-                        "artist": artist_names
+                        "artist": artist_names,
+                        "album": album_name,
                     })
 
             # Check if there's another page

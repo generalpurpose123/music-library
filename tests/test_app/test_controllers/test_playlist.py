@@ -63,12 +63,13 @@ class TestExtractPlaylistId:
 # get_spotify_playlist
 # ---------------------------------------------------------------------------
 
-def _make_item(name, artist_names):
+def _make_item(name, artist_names, album="Some Album"):
     """Helper to build a Spotify playlist item dict."""
     return {
         "track": {
             "name": name,
             "artists": [{"name": a} for a in artist_names],
+            "album": {"name": album} if album is not None else None,
         }
     }
 
@@ -105,8 +106,8 @@ class TestGetSpotifyPlaylist:
         result = get_spotify_playlist("https://open.spotify.com/playlist/abc123")
 
         assert len(result) == 2
-        assert result[0] == {"title": "Song A", "artist": "Artist A"}
-        assert result[1] == {"title": "Song B", "artist": "Artist B"}
+        assert result[0] == {"title": "Song A", "artist": "Artist A", "album": "Some Album"}
+        assert result[1] == {"title": "Song B", "artist": "Artist B", "album": "Some Album"}
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
@@ -196,6 +197,47 @@ class TestGetSpotifyPlaylist:
 
         assert len(result) == 1
         assert result[0]["title"] == "Good Song"
+
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
+    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+                {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
+    def test_album_name_extracted(self, mock_spotify_cls, mock_creds):
+        """Regression (B2): the album must be fetched so library paths are stable."""
+        items = [_make_item("Song", ["Artist"], album="The Album")]
+        mock_sp = self._build_mock_spotify([(items, False)])
+        mock_spotify_cls.return_value = mock_sp
+
+        result = get_spotify_playlist("https://open.spotify.com/playlist/abc123")
+
+        assert result[0]["album"] == "The Album"
+
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
+    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+                {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
+    def test_missing_album_yields_none(self, mock_spotify_cls, mock_creds):
+        items = [_make_item("Local File", ["Artist"], album=None)]
+        mock_sp = self._build_mock_spotify([(items, False)])
+        mock_spotify_cls.return_value = mock_sp
+
+        result = get_spotify_playlist("https://open.spotify.com/playlist/abc123")
+
+        assert result[0]["album"] is None
+
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
+    @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
+    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+                {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
+    def test_fields_param_requests_album(self, mock_spotify_cls, mock_creds):
+        items = [_make_item("Song", ["Artist"])]
+        mock_sp = self._build_mock_spotify([(items, False)])
+        mock_spotify_cls.return_value = mock_sp
+
+        get_spotify_playlist("https://open.spotify.com/playlist/abc123")
+
+        fields = mock_sp.playlist_items.call_args.kwargs["fields"]
+        assert "album(name)" in fields
 
     def test_invalid_url_raises_playlist_fetch_error(self):
         """Invalid URL (no playlist ID parsable) raises PlaylistFetchError."""

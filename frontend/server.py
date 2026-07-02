@@ -287,7 +287,8 @@ async def sync_fetch(
 
     schema_list = [s.strip() for s in schema.split("/") if s.strip()]
     rows_html = "\n".join(
-        f"<tr><td>{i+1}</td><td>{t.get('title','')}</td><td>{t.get('artist','')}</td></tr>"
+        f"<tr><td>{i+1}</td><td>{t.get('title','')}</td><td>{t.get('artist','')}</td>"
+        f"<td>{t.get('album') or ''}</td></tr>"
         for i, t in enumerate(tracks)
     )
 
@@ -300,7 +301,7 @@ async def sync_fetch(
   <p class="success">{len(tracks)} tracks found.</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>#</th><th>Title</th><th>Artist</th></tr></thead>
+      <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th></tr></thead>
       <tbody>{rows_html}</tbody>
     </table>
   </div>

@@ -424,3 +424,74 @@ class TestIntegratePlaylist:
             integrate_playlist(tracks, root, schema)
 
         mock_gather.assert_not_called()
+
+
+class TestAlbumPathStability:
+    """Regression tests (B2): the Spotify album drives the library path, making re-runs idempotent."""
+
+    def _downloaded_file(self, tmp_path, name="dl.mp3"):
+        p = tmp_path / name
+        p.write_bytes(b"\xff\xfb\x90\x00" * 4)
+        return str(p)
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_spotify_album_wins_over_shazam_album(self, mock_disk, tmp_path):
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        schema = ["artist", "album"]
+        tracks = [{"title": "Song", "artist": "Artist", "album": "Album X"}]
+        mock_disk.return_value = None
+
+        downloaded_file = self._downloaded_file(tmp_path)
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Different Shazam Album"}
+            )
+            integrate_playlist(tracks, root, schema)
+
+        expected = build_path(root, schema, "Song", "Artist", album="Album X") + ".mp3"
+        shazam_path = build_path(root, schema, "Song", "Artist", album="Different Shazam Album") + ".mp3"
+        assert os.path.isfile(expected)
+        assert not os.path.exists(shazam_path)
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_second_run_downloads_nothing(self, mock_disk, tmp_path):
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        schema = ["artist", "album"]
+        tracks = [{"title": "Song", "artist": "Artist", "album": "Album X"}]
+        mock_disk.return_value = None
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                self._downloaded_file(tmp_path), {"album_name": "Shazam Album"}
+            )
+            integrate_playlist(tracks, root, schema)
+            assert mock_get_song.call_count == 1
+
+            integrate_playlist(tracks, root, schema)
+            assert mock_get_song.call_count == 1  # no re-download on second run
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_album_none_falls_back_to_shazam_album(self, mock_disk, tmp_path):
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        schema = ["artist", "album"]
+        tracks = [{"title": "Song", "artist": "Artist", "album": None}]
+        mock_disk.return_value = None
+
+        downloaded_file = self._downloaded_file(tmp_path)
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Shazam Album"}
+            )
+            integrate_playlist(tracks, root, schema)
+
+        expected = build_path(root, schema, "Song", "Artist", album="Shazam Album") + ".mp3"
+        assert os.path.isfile(expected)
