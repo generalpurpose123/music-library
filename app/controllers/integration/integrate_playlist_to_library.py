@@ -94,19 +94,26 @@ def _try_move_existing(
     library_files: list | None = None,
 ) -> bool:
     """
-    Use deep duplicate detection (ID3 tags + fuzzy matching) to find this track
-    anywhere in root_folder. If found at a different path, move it to
-    correct_mp3_path and return True. Returns False if no existing copy is found.
+    Use deep duplicate detection (ID3 tags) to find this track anywhere in
+    root_folder. Only a normalized-exact match may be moved to
+    correct_mp3_path; a fuzzy-only match is logged and left in place so the
+    wrong file is never relocated automatically. Returns True if a file was moved.
 
     Pass library_files to reuse a previously scanned snapshot (avoids O(N*M) scans
     when processing an entire playlist — call scan_library() once and pass the result).
+    A successful move updates the snapshot in place so later lookups see the new path.
     """
     from app.controllers.integration.duplicate_detector import scan_library, find_existing_in_library
 
     if library_files is None:
         library_files = scan_library(root_folder)
-    match = find_existing_in_library(title, artist, library_files)
+    match = find_existing_in_library(title, artist, library_files, exact_only=True)
     if match is None:
+        fuzzy = find_existing_in_library(title, artist, library_files)
+        if fuzzy is not None:
+            logger.info(
+                f"Possible duplicate of '{artist} - {title}' at '{fuzzy.path}' — left in place"
+            )
         return False
     if match.path == correct_mp3_path:
         # Already in the right place; the caller's isfile() check will catch this
@@ -117,6 +124,8 @@ def _try_move_existing(
         shutil.move(match.path, correct_mp3_path)
     except OSError as exc:
         raise LibraryError(f"Failed to move file to '{correct_mp3_path}'") from exc
+    library_files.remove(match)
+    library_files.append(match._replace(path=correct_mp3_path))
     return True
 
 
@@ -345,9 +354,17 @@ def integrate_playlist(
                 job.save()
                 continue
 
-            # Try to find and move existing misplaced file using fuzzy duplicate detection.
+            # Try to find and move an existing misplaced file using duplicate detection.
             # Pass the cached library snapshot to avoid re-scanning for every track.
-            moved = _try_move_existing(track_job.title, track_job.artist, correct_mp3_path, root_folder, library_snapshot)
+            # A failed move must not abort the rest of the playlist.
+            try:
+                moved = _try_move_existing(track_job.title, track_job.artist, correct_mp3_path, root_folder, library_snapshot)
+            except (LibraryError, OSError) as exc:
+                track_job.status = TrackStatus.FAILED
+                track_job.error = f"move failed: {exc}"
+                logger.error(f"Track {track_job.artist} - {track_job.title} move failed: {exc}")
+                job.save()
+                continue
             if moved:
                 track_job.status = TrackStatus.SKIPPED
                 track_job.target_path = correct_mp3_path

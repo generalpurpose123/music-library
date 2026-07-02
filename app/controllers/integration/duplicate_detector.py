@@ -8,12 +8,17 @@ and can detect if a track already exists anywhere in the tree using:
   3. Fuzzy similarity (difflib >= threshold, default 0.85)
 """
 import os
-from difflib import SequenceMatcher
 from typing import NamedTuple
 
 from mutagen.id3 import ID3, ID3NoHeaderError
 
 from app.tools.make_logger import simple_logger
+from app.tools.track_matching import (
+    artists_match,
+    normalize_for_match,
+    similarity,
+    titles_match,
+)
 
 logger = simple_logger(__name__)
 
@@ -22,10 +27,6 @@ class LibraryFile(NamedTuple):
     path: str
     title: str   # from ID3 TIT2 or filename
     artist: str  # from ID3 TPE1 or filename
-
-
-def _similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
 
 
 def _read_tags(path: str) -> tuple[str, str]:
@@ -65,33 +66,35 @@ def find_existing_in_library(
     artist: str,
     library_files: list[LibraryFile],
     threshold: float = 0.85,
+    exact_only: bool = False,
 ) -> LibraryFile | None:
     """
     Search library_files for a track matching (title, artist).
     Strategy (in order):
-      1. Exact match on both title and artist (case-insensitive)
-      2. ID3 fuzzy match: both title and artist similarity >= threshold
+      1. Normalized-exact match: same title after decoration stripping
+         (feat/remaster suffixes) plus an agreeing artist credit — safe to
+         act on automatically.
+      2. Unless exact_only: fuzzy match with both title and artist similarity
+         >= threshold. Titles with different variant markers (remix, live...)
+         never fuzzy-match.
     Returns the best match or None.
     """
-    title_l = title.lower().strip()
-    artist_l = artist.lower().strip()
-
     best: LibraryFile | None = None
     best_score: float = 0.0
 
     for lf in library_files:
-        lf_title = lf.title.lower().strip()
-        lf_artist = lf.artist.lower().strip()
-
-        # Exact match: fast path
-        if lf_title == title_l and lf_artist == artist_l:
+        # Normalized-exact match: fast path
+        if normalize_for_match(lf.title) == normalize_for_match(title) and artists_match(
+            artist, lf.artist
+        ):
             return lf
 
+        if exact_only:
+            continue
+
         # Fuzzy match
-        t_sim = _similarity(title, lf.title)
-        a_sim = _similarity(artist, lf.artist)
-        if t_sim >= threshold and a_sim >= threshold:
-            combined = (t_sim + a_sim) / 2
+        if titles_match(title, lf.title, threshold) and artists_match(artist, lf.artist, threshold):
+            combined = (similarity(title, lf.title) + similarity(artist, lf.artist)) / 2
             if combined > best_score:
                 best_score = combined
                 best = lf

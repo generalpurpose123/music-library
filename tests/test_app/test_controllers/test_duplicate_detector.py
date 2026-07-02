@@ -167,6 +167,38 @@ class TestFindExistingInLibrary:
         assert result.path == "/b.mp3"
 
 
+class TestExactOnly:
+    def _make_library(self, entries):
+        return [LibraryFile(path=f"/lib/{t}.mp3", title=t, artist=a) for t, a in entries]
+
+    def test_decorated_title_is_normalized_exact(self):
+        """Feat/remaster decorations still count as an exact match."""
+        library = self._make_library([("Thrift Shop (feat. Wanz)", "Macklemore & Ryan Lewis")])
+        result = find_existing_in_library(
+            "Thrift Shop", "Macklemore", library, exact_only=True
+        )
+        assert result is not None
+
+    def test_fuzzy_near_miss_found_by_default(self):
+        library = self._make_library([("Hello Wrld", "Artist C")])
+        result = find_existing_in_library("Hello World", "Artist C", library)
+        assert result is not None
+
+    def test_fuzzy_near_miss_rejected_with_exact_only(self):
+        """Regression (B8): typo-level matches must not qualify as exact."""
+        library = self._make_library([("Hello Wrld", "Artist C")])
+        result = find_existing_in_library("Hello World", "Artist C", library, exact_only=True)
+        assert result is None
+
+    def test_remix_never_matches_original(self):
+        library = self._make_library([("Around the World (Remix)", "Artist D")])
+        assert find_existing_in_library("Around the World", "Artist D", library) is None
+        assert (
+            find_existing_in_library("Around the World", "Artist D", library, exact_only=True)
+            is None
+        )
+
+
 # ---------------------------------------------------------------------------
 # Integration: scan_library + find_existing_in_library
 # ---------------------------------------------------------------------------

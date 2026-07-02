@@ -23,7 +23,9 @@ from app.controllers.integration.integrate_playlist_to_library import (
     move_incorrectly_placed_files,
     integrate_playlist,
     download_missing_songs,
+    _try_move_existing,
 )
+from app.controllers.integration.duplicate_detector import scan_library
 from app.controllers.song_aquisition.get_check_enhance_song import SongDownloadResult
 from app.models.exceptions import LibraryError
 
@@ -495,3 +497,96 @@ class TestAlbumPathStability:
 
         expected = build_path(root, schema, "Song", "Artist", album="Shazam Album") + ".mp3"
         assert os.path.isfile(expected)
+
+
+class TestSafeLibraryMoves:
+    """Regression tests (B3/B4/B8): library moves must be safe and non-fatal."""
+
+    def _make_file(self, root, relpath):
+        full = os.path.join(root, relpath)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as f:
+            f.write(b"\xff\xfb\x90\x00" * 4)
+        return full
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_move_failure_does_not_abort_playlist(self, mock_disk, tmp_path):
+        """Regression (B3): one failed move marks that track FAILED, the rest continues."""
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        schema = ["artist"]
+        tracks = [
+            {"title": "Song One", "artist": "Artist A", "album": None},
+            {"title": "Song Two", "artist": "Artist B", "album": None},
+        ]
+        mock_disk.return_value = None
+        # Misplaced copy of track 1 (title/artist parsed from the filename).
+        misplaced = self._make_file(root, "misc/Artist A - Song One.mp3")
+
+        downloaded_file = self._make_file(str(tmp_path), "dl.mp3")
+        real_move = shutil.move
+
+        def failing_move(src, dst, *args, **kwargs):
+            if src == misplaced:
+                raise OSError("simulated move failure")
+            return real_move(src, dst, *args, **kwargs)
+
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song, patch(
+            "app.controllers.integration.integrate_playlist_to_library.shutil.move",
+            side_effect=failing_move,
+        ):
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Unknown Album"}
+            )
+            job = integrate_playlist(tracks, root, schema)
+
+        statuses = {t.title: t.status.value for t in job.tracks}
+        assert statuses["Song One"] == "failed"
+        assert statuses["Song Two"] == "done"
+        assert "move failed" in job.tracks[0].error
+        # Track 2 was still downloaded despite track 1's move failure.
+        assert mock_get_song.call_count == 1
+
+    def test_snapshot_updated_after_move(self, tmp_path):
+        """Regression (B4): a second lookup after a move must not use the stale path."""
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        self._make_file(root, "misc/Artist A - Song One.mp3")
+        snapshot = scan_library(root)
+
+        first_target = os.path.join(root, "Artist A", "Song One.mp3")
+        moved = _try_move_existing("Song One", "Artist A", first_target, root, snapshot)
+        assert moved
+        assert os.path.isfile(first_target)
+
+        # Same logical track requested at a different location: the snapshot
+        # must point at the file's new path, not the stale one.
+        second_target = os.path.join(root, "Elsewhere", "Song One.mp3")
+        moved_again = _try_move_existing("Song One", "Artist A", second_target, root, snapshot)
+        assert moved_again
+        assert os.path.isfile(second_target)
+        assert any(lf.path == second_target for lf in snapshot)
+
+    @patch("app.controllers.integration.integrate_playlist_to_library._check_disk_space")
+    def test_fuzzy_only_match_is_not_moved(self, mock_disk, tmp_path):
+        """Regression (B8): a fuzzy near-miss stays in place; the track is downloaded."""
+        root = str(tmp_path / "library")
+        os.makedirs(root)
+        schema = ["artist"]
+        tracks = [{"title": "Hello World", "artist": "Artist C", "album": None}]
+        mock_disk.return_value = None
+        typo_file = self._make_file(root, "misc/Artist C - Hello Wrld.mp3")
+
+        downloaded_file = self._make_file(str(tmp_path), "dl.mp3")
+        with patch(
+            "app.controllers.integration.integrate_playlist_to_library.get_check_enhance_song"
+        ) as mock_get_song:
+            mock_get_song.return_value = SongDownloadResult(
+                downloaded_file, {"album_name": "Unknown Album"}
+            )
+            integrate_playlist(tracks, root, schema)
+
+        assert os.path.isfile(typo_file)  # near-miss untouched
+        assert mock_get_song.call_count == 1  # download happened instead
