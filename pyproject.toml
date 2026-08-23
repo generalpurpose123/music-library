@@ -15,6 +15,8 @@ dependencies = [
     "spotipy>=2.24",
     "yt-dlp>=2024.1.1",
     "shazamio>=0.7.0",
+    # stdlib audioop was removed in 3.13; pydub (via shazamio) still needs it
+    "audioop-lts>=0.2.1; python_version >= '3.13'",
     "mutagen>=1.47",
     "python-dotenv>=1.0",
     "fastapi>=0.115",

@@ -37,6 +37,16 @@ fi
 [ -d .venv ] || "$PY" -m venv .venv
 ./.venv/bin/pip install --quiet --upgrade pip
 ./.venv/bin/pip install --quiet -e '.[dev]'
+
+# shazamio-core's released builds use pyo3 0.20, which segfaults on import
+# under Python 3.14; upstream master has already moved to pyo3 0.29. Override
+# from git (pinned) until a fixed release ships. Must run AFTER the main
+# install because shazamio hard-pins shazamio-core==1.1.2 — pip prints a
+# dependency-conflict warning here, which is expected and harmless.
+./.venv/bin/pip install --quiet \
+    "shazamio-core @ git+https://github.com/shazamio/shazamio-core@0a2cbc69a9d3297ac6b91813188990eec6d7cb3e" \
+    2>&1 | grep -v "dependency conflicts\|shazamio 0.8" || true
+
 [ -f .env ] || cp .env.example .env
 
 echo
