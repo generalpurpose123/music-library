@@ -188,6 +188,10 @@ def _run_single_download(
 ) -> None:
     """Run single song download in a thread. Streams logs via queue."""
     from app.controllers.song_aquisition.get_check_enhance_song import get_check_enhance_song
+    from app.controllers.integration.integrate_playlist_to_library import (
+        sanitize_fs_name,
+        strip_feature,
+    )
 
     log_q = _log_queues.setdefault(job_id, queue.Queue())
     root_logger = logging.getLogger()
@@ -197,11 +201,15 @@ def _run_single_download(
 
     try:
         os.makedirs(output_folder, exist_ok=True)
+        # Name the download "{Artist} - {Title}" from the form input rather
+        # than letting yt-dlp use the YouTube video title; on successful
+        # recognition the file is renamed again to the recognized names.
+        pre_name = f"{sanitize_fs_name(strip_feature(artist))} - {sanitize_fs_name(song)}"
         result = get_check_enhance_song(
             artist_name=artist,
             song_name=song,
             output_directory=output_folder,
-            output_filename=None,
+            output_filename=pre_name if pre_name.strip(" -") else None,
             max_retry=3,
         )
         if result:

@@ -132,7 +132,9 @@ class TestGetCheckEnhanceSong:
             output_directory=str(tmp_path),
         )
 
-        assert result == mp3_path
+        expected = str(tmp_path / "Queen - Bohemian Rhapsody.mp3")
+        assert result == expected
+        assert not os.path.isfile(mp3_path)  # renamed to canonical form
         mock_attach.assert_called_once()
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.attach_id3_metadata")
@@ -164,7 +166,8 @@ class TestGetCheckEnhanceSong:
             max_retry=3,
         )
 
-        assert result == mp3_right
+        expected = str(tmp_path / "Queen - Bohemian Rhapsody.mp3")
+        assert result == expected
         assert not os.path.isfile(mp3_wrong)  # Wrong file was deleted
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.asyncio.run")
@@ -214,7 +217,8 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_good
+        expected = str(tmp_path / "Queen - Bohemian Rhapsody.mp3")
+        assert result == expected
 
     @patch("app.controllers.song_aquisition.get_check_enhance_song.search_youtube_via_yt_dlp")
     def test_no_youtube_results_raises_download_error(self, mock_search, tmp_path):
@@ -253,7 +257,8 @@ class TestGetCheckEnhanceSong:
                 max_retry=3,
             )
 
-        assert result == mp3_b
+        expected = str(tmp_path / "Queen - Bohemian Rhapsody.mp3")
+        assert result == expected
 
 
 # ---------------------------------------------------------------------------
@@ -312,3 +317,54 @@ class TestDownloadAudioFromYoutube:
 
         with pytest.raises(Exception, match="yt-dlp internal error"):
             download_audio_from_youtube("https://youtube.com/watch?v=abc", output_dir)
+
+
+# ---------------------------------------------------------------------------
+# _rename_to_recognized
+# ---------------------------------------------------------------------------
+
+class TestRenameToRecognized:
+    def test_renames_to_sanitized_canonical_name(self, tmp_path):
+        from app.controllers.song_aquisition.get_check_enhance_song import _rename_to_recognized
+        p = tmp_path / "Madonna - La Isla Bonita (Lyrics).mp3"
+        p.write_bytes(b"\xff\xfb\x90\x00")
+
+        result = _rename_to_recognized(str(p), "Madonna", "La Isla Bonita")
+
+        assert result == str(tmp_path / "Madonna - La Isla Bonita.mp3")
+        assert os.path.isfile(result)
+        assert not p.exists()
+
+    def test_strips_featured_artists_and_unsafe_chars(self, tmp_path):
+        from app.controllers.song_aquisition.get_check_enhance_song import _rename_to_recognized
+        p = tmp_path / "video title.mp3"
+        p.write_bytes(b"\xff\xfb\x90\x00")
+
+        result = _rename_to_recognized(
+            str(p), "Kanye West (feat. Young Jeezy)", "Can't Tell Me Nothing?"
+        )
+
+        assert result == str(tmp_path / "Kanye West - Cant Tell Me Nothing.mp3")
+
+    def test_noop_when_already_canonical(self, tmp_path):
+        from app.controllers.song_aquisition.get_check_enhance_song import _rename_to_recognized
+        p = tmp_path / "Queen - Bohemian Rhapsody.mp3"
+        p.write_bytes(b"\xff\xfb\x90\x00")
+
+        result = _rename_to_recognized(str(p), "Queen", "Bohemian Rhapsody")
+
+        assert result == str(p)
+        assert p.exists()
+
+    def test_overwrites_existing_duplicate(self, tmp_path):
+        from app.controllers.song_aquisition.get_check_enhance_song import _rename_to_recognized
+        old = tmp_path / "Queen - Bohemian Rhapsody.mp3"
+        old.write_bytes(b"old")
+        fresh = tmp_path / "fresh download.mp3"
+        fresh.write_bytes(b"fresh")
+
+        result = _rename_to_recognized(str(fresh), "Queen", "Bohemian Rhapsody")
+
+        assert result == str(old)
+        assert old.read_bytes() == b"fresh"
+        assert not fresh.exists()

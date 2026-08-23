@@ -64,6 +64,39 @@ def search_youtube_via_yt_dlp(
     return urls
 
 
+def _rename_to_recognized(path: str, artist: str, title: str) -> str:
+    """
+    Rename a verified download to the canonical "{Artist} - {Title}.mp3" form,
+    built from the *recognized* metadata with the same sanitizing rules the
+    playlist-integration flow uses, so both flows produce identical filenames.
+
+    :param path: Path of the downloaded file.
+    :param artist: Recognized artist name.
+    :param title: Recognized song title.
+    :return: The new path, or the original path if renaming was not possible.
+    """
+    # Local import: integrate_playlist_to_library imports this module at load
+    # time, so a top-level import here would be circular.
+    from app.controllers.integration.integrate_playlist_to_library import (
+        sanitize_fs_name,
+        strip_feature,
+    )
+
+    directory = os.path.dirname(path)
+    ext = os.path.splitext(path)[1]
+    canonical = f"{sanitize_fs_name(strip_feature(artist))} - {sanitize_fs_name(title)}{ext}"
+    target = os.path.join(directory, canonical)
+    if os.path.abspath(target) == os.path.abspath(path):
+        return path
+    try:
+        os.replace(path, target)
+        logger.info(f"Renamed to canonical filename: {canonical}")
+        return target
+    except OSError as e:
+        logger.warning(f"Could not rename to '{canonical}', keeping original name: {e}")
+        return path
+
+
 def get_check_enhance_song(
     artist_name: str,
     song_name: str,
@@ -136,8 +169,11 @@ def get_check_enhance_song(
                 attach_id3_metadata(downloaded_path, metadata)
             except Exception as e:
                 logger.error(f"Failed to attach ID3 metadata: {e}")
+            final_path = _rename_to_recognized(
+                downloaded_path, recognized_artist, recognized_title
+            )
             logger.info("Success! Returning final path.")
-            return downloaded_path
+            return final_path
         else:
             logger.warning(
                 f"Recognized mismatch. Wanted: '{artist_name} - {song_name}', "
