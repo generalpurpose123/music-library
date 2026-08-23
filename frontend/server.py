@@ -224,7 +224,7 @@ async def index(request: Request):
     root = _library_root()
     mp3_count = await asyncio.get_running_loop().run_in_executor(_executor, _count_mp3s, root)
     recent = await asyncio.get_running_loop().run_in_executor(_executor, _recent_jobs, root)
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "library_root": root,
         "mp3_count": mp3_count,
@@ -234,19 +234,19 @@ async def index(request: Request):
 
 @app.get("/sync", response_class=HTMLResponse)
 async def sync_page(request: Request):
-    return templates.TemplateResponse("sync.html", {"request": request})
+    return templates.TemplateResponse(request, "sync.html", {"request": request})
 
 
 @app.get("/browse", response_class=HTMLResponse)
 async def browse_page(request: Request):
     root = _library_root()
-    return templates.TemplateResponse("browse.html", {"request": request, "library_root": root})
+    return templates.TemplateResponse(request, "browse.html", {"request": request, "library_root": root})
 
 
 @app.get("/download", response_class=HTMLResponse)
 async def download_page(request: Request):
     root = _library_root()
-    return templates.TemplateResponse("download.html", {"request": request, "library_root": root})
+    return templates.TemplateResponse(request, "download.html", {"request": request, "library_root": root})
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -254,7 +254,7 @@ async def settings_page(request: Request):
     client_id_set = bool(os.environ.get("SPOTIFY_CLIENT_ID", "").strip())
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
     root = _library_root()
-    return templates.TemplateResponse("settings.html", {
+    return templates.TemplateResponse(request, "settings.html", {
         "request": request,
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,
@@ -348,7 +348,7 @@ async def sync_start(
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def job_page(request: Request, job_id: str):
     root = _library_root()
-    return templates.TemplateResponse("job.html", {
+    return templates.TemplateResponse(request, "job.html", {
         "request": request,
         "job_id": job_id,
         "root_folder": root,
@@ -494,7 +494,7 @@ async def download_start(
 
 @app.get("/download/progress/{job_id}", response_class=HTMLResponse)
 async def download_progress_page(request: Request, job_id: str):
-    return templates.TemplateResponse("download_progress.html", {
+    return templates.TemplateResponse(request, "download_progress.html", {
         "request": request,
         "job_id": job_id,
     })
@@ -558,7 +558,7 @@ async def settings_save(
     client_secret_set = bool(os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip())
     root = _library_root()
 
-    return templates.TemplateResponse("settings.html", {
+    return templates.TemplateResponse(request, "settings.html", {
         "request": request,
         "client_id_set": client_id_set,
         "client_secret_set": client_secret_set,

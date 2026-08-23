@@ -5,7 +5,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
 from app.tools.make_logger import simple_logger
-from app.config.local_config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+from app.config import local_config
 from app.models.exceptions import CredentialsError, PlaylistFetchError
 
 logger = simple_logger(__name__)
@@ -44,9 +44,13 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
             playlist_url="https://open.spotify.com/playlist/123...",
         )
     """
-    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    # Read at call time so credentials saved via the web UI take effect
+    # without a restart.
+    client_id = local_config.SPOTIFY_CLIENT_ID
+    client_secret = local_config.SPOTIFY_CLIENT_SECRET
+    if not client_id or not client_secret:
         raise CredentialsError(
-            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set. See local_config.py.example."
+            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set. See .env.example."
         )
 
     playlist_id = extract_playlist_id(playlist_url)
@@ -57,8 +61,8 @@ def get_spotify_playlist(playlist_url: str) -> list[dict[str, str]]:
 
     # Authenticate with Spotify using credentials loaded from environment
     client_credentials_manager = SpotifyClientCredentials(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET
+        client_id=client_id,
+        client_secret=client_secret
     )
     sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 

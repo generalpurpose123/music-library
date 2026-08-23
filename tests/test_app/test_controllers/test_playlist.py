@@ -92,7 +92,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_successful_single_page_fetch(self, mock_spotify_cls, mock_creds):
         items = [
@@ -110,7 +110,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_paginated_two_pages(self, mock_spotify_cls, mock_creds):
         page1 = [_make_item(f"Song {i}", ["Artist"]) for i in range(3)]
@@ -129,7 +129,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_pagination_stops_when_next_is_none(self, mock_spotify_cls, mock_creds):
         page1 = [_make_item("Only Song", ["Only Artist"])]
@@ -143,7 +143,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_empty_playlist_returns_empty_list(self, mock_spotify_cls, mock_creds):
         mock_sp = self._build_mock_spotify([([], False)])
@@ -155,7 +155,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_spotify_api_error_raises_playlist_fetch_error(self, mock_spotify_cls, mock_creds):
         """Unexpected Spotify API errors are wrapped in PlaylistFetchError."""
@@ -168,7 +168,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_multiple_artists_joined_with_comma(self, mock_spotify_cls, mock_creds):
         items = [_make_item("Collab", ["Artist A", "Artist B"])]
@@ -182,7 +182,7 @@ class TestGetSpotifyPlaylist:
 
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.SpotifyClientCredentials")
     @patch("app.controllers.playlist_aquisition.get_spotify_playlist.spotipy.Spotify")
-    @patch.dict("app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+    @patch.dict("app.config.local_config.__dict__",
                 {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"})
     def test_tracks_without_name_or_artist_skipped(self, mock_spotify_cls, mock_creds):
         items = [
@@ -200,7 +200,7 @@ class TestGetSpotifyPlaylist:
     def test_invalid_url_raises_playlist_fetch_error(self):
         """Invalid URL (no playlist ID parsable) raises PlaylistFetchError."""
         with patch.dict(
-            "app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+            "app.config.local_config.__dict__",
             {"SPOTIFY_CLIENT_ID": "fake_id", "SPOTIFY_CLIENT_SECRET": "fake_secret"},
         ):
             with pytest.raises(PlaylistFetchError):
@@ -209,7 +209,7 @@ class TestGetSpotifyPlaylist:
     def test_missing_credentials_raises_credentials_error(self):
         """Missing Spotify credentials raise CredentialsError."""
         with patch.dict(
-            "app.controllers.playlist_aquisition.get_spotify_playlist.__dict__",
+            "app.config.local_config.__dict__",
             {"SPOTIFY_CLIENT_ID": "", "SPOTIFY_CLIENT_SECRET": ""},
         ):
             with pytest.raises(CredentialsError):

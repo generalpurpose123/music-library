@@ -32,39 +32,34 @@ The pipeline has four main stages. `get_spotify_playlist` authenticates with the
 ```bash
 git clone https://github.com/generalpurpose123/music-library.git
 cd music-library
-pip install -e .
+./setup.sh
 ```
+
+`setup.sh` checks the prerequisites, creates a `.venv`, installs the package with dev dependencies, and scaffolds a `.env` file. It is safe to re-run. (Manual equivalent: create a Python 3.14 venv, `pip install -e '.[dev]'`, `cp .env.example .env`.)
 
 ### Credentials Setup
 
-Copy the example config and fill in your Spotify credentials:
+Put your Spotify credentials in `.env` at the project root:
 
-```bash
-cp app/config/local_config.py.example app/config/local_config.py
+```
+SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
 ```
 
-Edit `app/config/local_config.py`:
-
-```python
-SPOTIFY_CLIENT_ID = "your_spotify_client_id_here"
-SPOTIFY_CLIENT_SECRET = "your_spotify_client_secret_here"
-```
+Alternatively, start the app without them and enter them in the web UI's settings page, which saves them to `.env` for you.
 
 Get your credentials from https://developer.spotify.com/dashboard — create an app, then copy the Client ID and Client Secret. No redirect URI is needed; this tool uses the Client Credentials flow and does not access private user data.
 
-`local_config.py` is gitignored and must never be committed.
+`.env` is gitignored and must never be committed.
 
 ### Running the Frontend
 
 ```bash
-streamlit run frontend/app.py
+source .venv/bin/activate
+uvicorn frontend.server:app --reload
 ```
 
-Or via the entry point:
-
-```bash
-python main.py
-```
+Then open http://127.0.0.1:8000.
 
 ### Programmatic Usage
 
