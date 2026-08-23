@@ -27,6 +27,7 @@ def fetch_lyrics_from_lyrics_ovh(artist: str, title: str) -> str | None:
         if response.status_code == 200:
             data = response.json()
             return data.get("lyrics")
+        logger.debug(f"lyrics.ovh has no lyrics for {artist} - {title} (HTTP {response.status_code})")
     except Exception as e:
         logger.debug(f"Failed to fetch lyrics from lyrics.ovh: {e}")
     return None
@@ -34,15 +35,33 @@ def fetch_lyrics_from_lyrics_ovh(artist: str, title: str) -> str | None:
 
 def fetch_lyrics_second_source(artist: str, title: str) -> str | None:
     """
-    A placeholder for a second lyrics source.
-    Replace or extend with a real service or parsing logic.
+    Fetch lyrics from LRCLIB (lrclib.net) — free, no API key required.
+
+    Uses the search endpoint rather than exact-match /api/get, since Shazam's
+    recognised artist/title strings rarely match LRCLIB's catalogue verbatim.
+    Prefers plain lyrics over time-synced ones for the USLT tag.
 
     :param artist: Artist name
     :param title: Song title
     :return: The lyrics string if found, else None
     """
-    # This is just a placeholder implementation.
-    logger.debug("Second source is not implemented yet; returning None.")
+    try:
+        response = requests.get(
+            "https://lrclib.net/api/search",
+            params={"artist_name": artist, "track_name": title},
+            headers={"User-Agent": "music-library/0.1.0 (https://github.com/generalpurpose123/music-library)"},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            logger.debug(f"LRCLIB search failed for {artist} - {title} (HTTP {response.status_code})")
+            return None
+        for result in response.json():
+            lyrics = result.get("plainLyrics") or result.get("syncedLyrics")
+            if lyrics:
+                return lyrics
+        logger.debug(f"LRCLIB has no lyrics for {artist} - {title}")
+    except Exception as e:
+        logger.debug(f"Failed to fetch lyrics from LRCLIB: {e}")
     return None
 
 

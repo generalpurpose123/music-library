@@ -360,3 +360,51 @@ class TestAttachId3Metadata:
         from mutagen.id3 import ID3
         tags = ID3(minimal_mp3)
         assert str(tags["TALB"]) == "Unknown Album"
+
+
+class TestFetchLyricsSecondSource:
+    """Unit tests for the LRCLIB-backed second lyrics source. Network mocked."""
+
+    def _response(self, status_code=200, payload=None):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = payload if payload is not None else []
+        return resp
+
+    @patch("app.controllers.song_recognition.get_metadata.requests.get")
+    def test_returns_plain_lyrics_from_first_result(self, mock_get):
+        from app.controllers.song_recognition.get_metadata import fetch_lyrics_second_source
+        mock_get.return_value = self._response(payload=[
+            {"plainLyrics": "Line 1\nLine 2", "syncedLyrics": "[00:01.00] Line 1"},
+        ])
+        assert fetch_lyrics_second_source("Artist", "Song") == "Line 1\nLine 2"
+        assert mock_get.call_args.kwargs["params"] == {
+            "artist_name": "Artist", "track_name": "Song",
+        }
+
+    @patch("app.controllers.song_recognition.get_metadata.requests.get")
+    def test_falls_back_to_synced_lyrics_and_skips_empty_results(self, mock_get):
+        from app.controllers.song_recognition.get_metadata import fetch_lyrics_second_source
+        mock_get.return_value = self._response(payload=[
+            {"plainLyrics": None, "syncedLyrics": None},
+            {"plainLyrics": None, "syncedLyrics": "[00:01.00] Synced line"},
+        ])
+        assert fetch_lyrics_second_source("Artist", "Song") == "[00:01.00] Synced line"
+
+    @patch("app.controllers.song_recognition.get_metadata.requests.get")
+    def test_returns_none_on_http_error(self, mock_get):
+        from app.controllers.song_recognition.get_metadata import fetch_lyrics_second_source
+        mock_get.return_value = self._response(status_code=500)
+        assert fetch_lyrics_second_source("Artist", "Song") is None
+
+    @patch("app.controllers.song_recognition.get_metadata.requests.get")
+    def test_returns_none_when_no_results(self, mock_get):
+        from app.controllers.song_recognition.get_metadata import fetch_lyrics_second_source
+        mock_get.return_value = self._response(payload=[])
+        assert fetch_lyrics_second_source("Artist", "Song") is None
+
+    @patch("app.controllers.song_recognition.get_metadata.requests.get")
+    def test_returns_none_on_network_exception(self, mock_get):
+        from app.controllers.song_recognition.get_metadata import fetch_lyrics_second_source
+        mock_get.side_effect = ConnectionError("boom")
+        assert fetch_lyrics_second_source("Artist", "Song") is None
