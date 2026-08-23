@@ -50,7 +50,19 @@ Alternatively, start the app without them and enter them in the web UI's setting
 
 Get your credentials from https://developer.spotify.com/dashboard — create an app, then copy the Client ID and Client Secret. No redirect URI is needed; this tool uses the Client Credentials flow and does not access private user data.
 
+> **Note:** Spotify requires the owner of a development-mode app to have an active **Premium** subscription; without it, playlist requests fail with HTTP 403. If you don't want to register an app at all, use the import path below instead.
+
 `.env` is gitignored and must never be committed.
+
+### Importing without the Spotify API
+
+The Sync page also accepts a plain track list — no Spotify app, credentials, or Premium needed. Export your playlist with a T&C-compliant tool:
+
+- [Chosic Playlist Exporter](https://www.chosic.com/spotify-playlist-exporter/) — paste a public playlist link, no login, instant CSV/TXT
+- [Exportify](https://exportify.net/) — log in with your Spotify account, export any of your playlists to CSV
+- Spotify's official data export (Account → Privacy settings → *Download your data*) — every playlist as JSON; takes days to arrive
+
+Then paste the tracks (one `Artist - Title` per line) or upload the CSV on the Sync page. Scraping open.spotify.com itself violates Spotify's Terms of Use and is not supported.
 
 ### Running the Frontend
 

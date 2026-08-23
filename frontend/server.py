@@ -3,6 +3,7 @@ music-library web frontend — FastAPI + HTMX
 Run with: uvicorn frontend.server:app --reload
 """
 import asyncio
+import html
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv, set_key
-from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -295,16 +296,23 @@ async def sync_fetch(
         return HTMLResponse('<div class="warning">No tracks found in this playlist.</div>')
 
     schema_list = [s.strip() for s in schema.split("/") if s.strip()]
+    return HTMLResponse(_render_track_confirm(tracks, schema_list, wildcard))
+
+
+def _render_track_confirm(tracks: list[dict], schema_list: list[str], wildcard: str) -> str:
+    """Render the review-table + start-form fragment shared by the Spotify
+    fetch and the track-list import. All user-controlled values are escaped."""
     rows_html = "\n".join(
-        f"<tr><td>{i+1}</td><td>{t.get('title','')}</td><td>{t.get('artist','')}</td></tr>"
+        f"<tr><td>{i+1}</td>"
+        f"<td>{html.escape(t.get('title',''))}</td>"
+        f"<td>{html.escape(t.get('artist',''))}</td></tr>"
         for i, t in enumerate(tracks)
     )
+    tracks_json = html.escape(json.dumps(tracks), quote=True)
+    schema_json = html.escape(json.dumps(schema_list), quote=True)
+    wildcard_safe = html.escape(wildcard, quote=True)
 
-    tracks_json = json.dumps(tracks)
-    schema_json = json.dumps(schema_list)
-    wildcard_safe = wildcard.replace('"', "&quot;")
-
-    return HTMLResponse(f"""
+    return f"""
 <div id="fetch-result">
   <p class="success">{len(tracks)} tracks found.</p>
   <div class="table-wrap">
@@ -314,13 +322,49 @@ async def sync_fetch(
     </table>
   </div>
   <form method="post" action="/sync/start" class="start-form">
-    <input type="hidden" name="playlist_json" value="{tracks_json.replace('"', '&quot;')}">
-    <input type="hidden" name="schema_json" value="{schema_json.replace('"', '&quot;')}">
+    <input type="hidden" name="playlist_json" value="{tracks_json}">
+    <input type="hidden" name="schema_json" value="{schema_json}">
     <input type="hidden" name="wildcard" value="{wildcard_safe}">
     <button type="submit" class="btn-primary">Start Sync ({len(tracks)} tracks)</button>
   </form>
 </div>
-""")
+"""
+
+
+@app.post("/import/parse", response_class=HTMLResponse)
+async def import_parse(
+    tracklist_text: str = Form(""),
+    file: UploadFile | None = File(None),
+    schema: str = Form("artist/album"),
+    wildcard: str = Form(""),
+):
+    """Parse a pasted or uploaded track list (no Spotify API involved) and
+    render the same confirmation fragment as /sync/fetch."""
+    from app.controllers.playlist_aquisition.parse_track_list import (
+        parse_track_csv,
+        parse_track_list,
+    )
+    from app.models.exceptions import TrackListParseError
+
+    try:
+        if file is not None and file.filename:
+            content = (await file.read()).decode("utf-8", errors="replace")
+            # Route by content, not extension: a Chosic .txt export is really
+            # "Artist - Title" lines, while .csv exports have a header row.
+            first_line = content.lstrip().splitlines()[0].lower() if content.strip() else ""
+            if "," in first_line and ("artist" in first_line or "track" in first_line or "song" in first_line):
+                tracks = parse_track_csv(content)
+            else:
+                tracks = parse_track_list(content)
+        elif tracklist_text.strip():
+            tracks = parse_track_list(tracklist_text)
+        else:
+            return HTMLResponse('<div class="error">Paste a track list or choose a file to upload.</div>')
+    except TrackListParseError as exc:
+        return HTMLResponse(f'<div class="error">{html.escape(str(exc))}</div>')
+
+    schema_list = [s.strip() for s in schema.split("/") if s.strip()]
+    return HTMLResponse(_render_track_confirm(tracks, schema_list, wildcard))
 
 
 @app.post("/sync/start")

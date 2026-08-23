@@ -15,3 +15,6 @@ class LibraryError(MusicLibraryError):
 
 class CredentialsError(MusicLibraryError):
     """Raised when required API credentials are missing or invalid."""
+
+class TrackListParseError(MusicLibraryError):
+    """Raised when a pasted or uploaded track list cannot be parsed."""

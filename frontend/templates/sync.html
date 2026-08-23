@@ -36,11 +36,62 @@
   </div>
 </form>
 
+<h2>Import from a track list</h2>
+<p class="muted">
+  No Spotify app or Premium needed. Export your playlist with a compliant tool —
+  <a href="https://www.chosic.com/spotify-playlist-exporter/" target="_blank" rel="noopener">Chosic</a> (paste playlist link, no login),
+  <a href="https://exportify.net/" target="_blank" rel="noopener">Exportify</a> (CSV of your playlists), or
+  Spotify's own <em>Privacy settings &rarr; Download your data</em> —
+  then paste the tracks or upload the file here.
+</p>
+
+<form id="import-form"
+      hx-post="/import/parse"
+      hx-target="#fetch-result"
+      hx-swap="innerHTML"
+      hx-indicator="#import-spinner"
+      hx-encoding="multipart/form-data">
+
+  <div class="form-group">
+    <label for="tracklist_text">Track list (one per line: Artist - Title)</label>
+    <textarea id="tracklist_text" name="tracklist_text" rows="6" class="input-wide"
+              placeholder="Madonna - La Isla Bonita&#10;Kanye West - Can't Tell Me Nothing"></textarea>
+  </div>
+
+  <div class="form-group">
+    <label for="tracklist_file">…or upload a CSV/TXT export</label>
+    <input type="file" id="tracklist_file" name="file" accept=".csv,.txt,text/csv,text/plain">
+  </div>
+
+  <div class="form-group">
+    <label for="import_schema">Organising schema</label>
+    <select id="import_schema" name="schema" onchange="toggleImportWildcard(this.value)">
+      <option value="artist/album">artist / album</option>
+      <option value="artist">artist only</option>
+      <option value="artist/album/wildcard">artist / album / wildcard</option>
+    </select>
+  </div>
+
+  <div class="form-group" id="import-wildcard-group" style="display:none">
+    <label for="import_wildcard">Wildcard folder name</label>
+    <input type="text" id="import_wildcard" name="wildcard" placeholder="e.g. Favourites">
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-secondary">Parse Track List</button>
+    <span id="import-spinner" class="htmx-indicator spinner">Parsing...</span>
+  </div>
+</form>
+
 <div id="fetch-result"></div>
 
 <script>
 function toggleWildcard(val) {
   document.getElementById('wildcard-group').style.display =
+    val.includes('wildcard') ? 'block' : 'none';
+}
+function toggleImportWildcard(val) {
+  document.getElementById('import-wildcard-group').style.display =
     val.includes('wildcard') ? 'block' : 'none';
 }
 </script>
